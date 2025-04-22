@@ -1,0 +1,786 @@
+// ==========================================================================
+// DỰ ÁN: NGHIÊN CỨU THIẾT KẾ MÔ HÌNH LƯU KHO THÔNG MINH
+// NỀN TẢNG: ESP32
+// CHỨC NĂNG: Điều khiển mô hình qua Web Interface (WebSocket) và nút bấm vật lý,
+//           hiển thị trạng thái trên LCD I2C, giao tiếp Serial với board khác.
+// ==========================================================================
+
+// --- KHAI BÁO THƯ VIỆN ---
+#ifdef ESP8266
+#error "Code này được thiết kế cho ESP32, vui lòng chọn đúng board."
+#elif defined(ESP32)
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#else
+#error "Board không được hỗ trợ."
+#endif
+
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <LiquidCrystal_I2C.h> // Thư viện LCD I2C
+#include <ArduinoJson.h>       // Thư viện xử lý JSON
+#include <HardwareSerial.h>    // Cho SerialPort (Serial1, Serial2)
+
+// --- CẤU HÌNH VÀ HẰNG SỐ ---
+
+// Cấu hình Wi-Fi
+const char *WIFI_SSID = "Minh Tri";      // Thay thế với SSID Wi-Fi của bạn
+const char *WIFI_PASSWORD = "88888888"; // Thay thế với mật khẩu Wi-Fi của bạn
+
+// Địa chỉ I2C và kích thước LCD
+const int LCD_ADDRESS = 0x27;
+const int LCD_COLS = 16;
+const int LCD_ROWS = 2;
+
+// Định nghĩa chân GPIO
+// Chân điều khiển (OUTPUT)
+const int LUU_KHO_PIN = 12; // Chân điều khiển chế độ Lưu kho
+const int XUAT_KHO_PIN = 13; // Chân điều khiển chế độ Xuất kho
+
+// Chân nút bấm vật lý (INPUT_PULLUP)
+const int NUT_LUU_KHO_VATLY_PIN = 25; // Nút vật lý Lưu kho
+const int NUT_XUAT_KHO_VATLY_PIN = 26; // Nút vật lý Xuất kho
+const int NUT_OFF_VATLY_PIN = 27;     // Nút vật lý Tắt/Dừng
+
+// Chân Serial1 (UART1) cho giao tiếp với board khác
+// Mặc định trên ESP32: TX1 = GPIO17, RX1 = GPIO16 (Có thể thay đổi nếu cần)
+// Nếu dùng Serial2: TX2 = GPIO17, RX2 = GPIO16 (Mặc định) - Cần kiểm tra lại board cụ thể
+const int SERIAL1_RX_PIN = 16;
+const int SERIAL1_TX_PIN = 17;
+
+// Thời gian chờ chống dội nút bấm (ms)
+const long DEBOUNCE_DELAY = 50;
+
+// Hằng số cho các lệnh và nguồn gốc lệnh (dùng trong JSON và xử lý)
+const char* ACTION_LUU_KHO = "luu_kho";
+const char* ACTION_XUAT_KHO = "xuat_kho";
+const char* ACTION_LOCATION = "location";
+const char* ACTION_OFF = "off"; // Thêm action cho nút OFF vật lý
+const char* SOURCE_PHYSICAL = "physical";
+const char* SOURCE_WEB = "web";
+const char* SOURCE_ESP32 = "esp32"; // Nguồn từ chính ESP32 (ví dụ: trạng thái ban đầu)
+
+
+// --- NỘI DUNG TRANG WEB HTML (PROGMEM) ---
+// Đặt ở đây để có thể truy cập được trong setupWebServer()
+const char trangHtml[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giao diện Nghiên cứu Thiết kế</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Times New Roman', Times, serif; }
+        body { background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1100px; width: 100%; padding: 20px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 0 20px rgba(0, 0, 0, 0.1); }
+        .header { display: flex; flex-direction: column; align-items: center; margin-bottom: 40px; border-bottom: 2px solid #003087; padding-bottom: 20px; text-align: center; }
+        .header-text { text-align: center; }
+        .header h1 { font-size: 28px; color: #003087; text-transform: uppercase; margin-bottom: 10px; }
+        .header h3 { font-size: 18px; color: #003087; }
+        .color-primary { color: #003087; }
+        .main-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; /* Cho phép wrap trên màn hình nhỏ */ }
+        .table-container { width: 100%; max-width: 450px; /* Giới hạn chiều rộng tối đa */ margin-bottom: 20px; } /* Điều chỉnh width và thêm max-width */
+        .table-header { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 10px; }
+        .table-title { border: 2px solid #003087; color: #003087; padding: 12px 15px; /* Giảm padding */ font-weight: bold; text-align: center; flex: 1; /* Chia đều không gian */ font-size: 16px; background-color: #f0f8ff; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
+        .table-title:hover { background-color: #d0e7ff; }
+        .table-title:active { transform: scale(0.98); }
+        .table-title.active { background-color: #4682b4; color: white; } /* Thêm màu chữ trắng khi active */
+        .table-body { border: 2px solid #003087; border-top: none; background-color: #f0f8ff; padding: 5px; border-radius: 0 0 5px 5px; }
+        .row { display: flex; justify-content: space-between; gap: 5px; margin-bottom: 5px; }
+        .cell { width: 48%; height: 70px; /* Giảm chiều cao */ display: flex; justify-content: center; align-items: center; font-size: 22px; /* Giảm font size */ font-weight: bold; color: #003087; border: 1px solid #003087; background-color: white; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; }
+        .cell:hover { background-color: #d0e7ff; }
+        .cell:active { transform: scale(0.98); }
+        .cell.active { background-color: #4682b4; color: white; } /* Thêm màu chữ trắng khi active */
+        .text-content { width: 100%; max-width: 550px; font-size: 16px; color: #000; line-height: 1.6; } /* Điều chỉnh width và thêm max-width */
+        .text-row { display: flex; flex-direction: row; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; /* Cho phép wrap */ }
+        .text-column { width: 100%; /* Mặc định full width */ }
+        .text-column.left { font-weight: bold; color: #003087; min-width: 180px; /* Đảm bảo cột trái đủ rộng */}
+        .text-column.right { color: #003087; flex: 1; /* Cột phải chiếm phần còn lại */ }
+        .text-column p { margin-bottom: 5px; } /* Giảm margin */
+        #status-indicator { margin-top: 20px; padding: 10px; background-color: #e0e0e0; border-radius: 5px; text-align: center; font-weight: bold; color: #333; }
+
+        @media (max-width: 992px) { /* Điều chỉnh breakpoint */
+             .main-content { flex-direction: column; align-items: center; gap: 20px; }
+             .table-container, .text-content { max-width: 600px; width: 100%; /* Đảm bảo chiếm full width container */}
+        }
+        @media (max-width: 480px) { /* Cho màn hình rất nhỏ */
+             .header h1 { font-size: 22px; }
+             .header h3 { font-size: 16px; }
+             .table-title { font-size: 14px; padding: 10px 12px; }
+             .cell { height: 60px; font-size: 18px; }
+             .text-content { font-size: 14px; }
+             .text-column.left { min-width: 120px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-text">
+                <h1>NGHIÊN CỨU THIẾT KẾ MÔ HÌNH LƯU KHO THÔNG MINH</h1>
+                <h3>ĐẠI HỌC ĐIỆN LỰC<br>ELECTRIC POWER UNIVERSITY</h3>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="table-container">
+                <div class="table-header">
+                   <div id="btn-luu-kho" class="table-title" onclick="sendWsCommand(this)" data-action="luu_kho">LƯU KHO</div>
+                   <div id="btn-xuat-kho" class="table-title" onclick="sendWsCommand(this)" data-action="xuat_kho">XUẤT KHO</div>
+                </div>
+                <div class="table-body">
+                    <div class="row">
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="C1">C1</div>
+                    </div>
+                    <div class="row">
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="B1">B1</div>
+                    </div>
+                    <div class="row">
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
+                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="A1">A1</div>
+                    </div>
+                </div>
+                <div id="status-indicator">Trạng thái: Đang chờ...</div>
+            </div>
+            <div class="text-content">
+                <div class="text-row">
+                    <div class="text-column left">SINH VIÊN THỰC HIỆN</div>
+                    <div class="text-column right">
+                        <p>NGUYỄN MINH TRÍ</p> <p>TRẦN KHẮC THÀNH</p> <p>NGUYỄN PHAN DUY TÂN</p> <p>NGUYỄN TIẾN HẢI</p> <p>ĐỖ MINH THẾ</p>
+                    </div>
+                </div>
+                <div class="text-row">
+                    <div class="text-column left">GIẢNG VIÊN HƯỚNG DẪN</div>
+                    <div class="text-column right"> <p>TS. ĐOÀN THỊ HƯƠNG GIANG</p> </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const gateway = `ws://${window.location.hostname}/ws`;
+        let websocket;
+        const statusIndicator = document.getElementById('status-indicator');
+        const btnLuuKho = document.getElementById('btn-luu-kho');
+        const btnXuatKho = document.getElementById('btn-xuat-kho');
+        const locationCells = document.querySelectorAll('.cell[data-action="location"]');
+
+        // Lưu trạng thái hoạt động hiện tại (để cập nhật UI)
+        let currentMode = null; // null, 'luu_kho', 'xuat_kho'
+        let currentLocation = null; // null, 'A1', 'B2', etc.
+
+        // Gọi hàm khởi tạo khi trang tải xong
+        window.addEventListener('load', onLoad);
+
+        function onLoad() {
+            initWebSocket();
+        }
+
+        function initWebSocket() {
+            console.log('Đang cố gắng mở WebSocket...');
+            updateStatusIndicator('Đang kết nối đến ESP32...', 'connecting');
+            websocket = new WebSocket(gateway);
+            websocket.onopen = onOpen;
+            websocket.onclose = onClose;
+            websocket.onerror = onError;
+            websocket.onmessage = onMessage;
+        }
+
+        function onOpen(event) {
+            console.log('WebSocket Đã Mở');
+            updateStatusIndicator('Đã kết nối', 'connected');
+            // Yêu cầu trạng thái hiện tại từ ESP32 khi kết nối thành công (nếu ESP32 hỗ trợ)
+            // websocket.send(JSON.stringify({ action: 'get_status' }));
+        }
+
+        function onClose(event) {
+            console.log('WebSocket Đã Đóng');
+            updateStatusIndicator('Đã mất kết nối. Đang thử lại...', 'disconnected');
+            // Thử kết nối lại sau 2 giây
+            setTimeout(initWebSocket, 2000);
+        }
+
+        function onError(event) {
+            console.error('Lỗi WebSocket: ', event);
+            updateStatusIndicator('Lỗi kết nối WebSocket', 'error');
+        }
+
+        function onMessage(event) {
+            console.log('Tin nhắn từ ESP32: ', event.data);
+            try {
+                const data = JSON.parse(event.data);
+                updateUI(data); // Cập nhật giao diện dựa trên dữ liệu nhận được
+            } catch (e) {
+                console.error("Lỗi phân tích JSON từ ESP32:", e);
+                updateStatusIndicator(`Lỗi dữ liệu: ${event.data}`, 'error');
+            }
+        }
+
+        // Hàm cập nhật giao diện người dùng dựa trên dữ liệu từ ESP32
+        function updateUI(data) {
+            const sourceText = data.source === 'physical' ? '(Nút vật lý)' : (data.source === 'web' ? '(Web)' : ''); // Add source check
+
+            if (data.action === 'luu_kho') {
+                currentMode = 'luu_kho';
+                // currentLocation = null; // Reset vị trí khi đổi mode (tùy logic bạn muốn)
+                updateStatusIndicator(`Chế độ: LƯU KHO ${sourceText}`, 'active');
+                setActiveButton(btnLuuKho);
+                // clearActiveLocation(); // Tùy chọn: xóa vị trí cũ khi đổi mode
+            } else if (data.action === 'xuat_kho') {
+                currentMode = 'xuat_kho';
+                // currentLocation = null; // Reset vị trí khi đổi mode (tùy logic bạn muốn)
+                updateStatusIndicator(`Chế độ: XUẤT KHO ${sourceText}`, 'active');
+                setActiveButton(btnXuatKho);
+                // clearActiveLocation(); // Tùy chọn: xóa vị trí cũ khi đổi mode
+            } else if (data.action === 'location' && data.value) {
+                currentLocation = data.value;
+                const modeText = currentMode === 'luu_kho' ? 'Lưu kho' : (currentMode === 'xuat_kho' ? 'Xuất kho' : 'Chưa chọn chế độ');
+                updateStatusIndicator(`${modeText} - Vị trí: ${data.value} ${sourceText}`, 'active');
+                setActiveLocation(data.value);
+            } else if (data.action === 'off') {
+                currentMode = null;
+                currentLocation = null;
+                updateStatusIndicator(`Đã dừng ${sourceText}`, 'idle');
+                clearActiveButton();
+                clearActiveLocation();
+            }
+            // Thêm các trường hợp khác nếu cần (ví dụ: báo lỗi từ ESP32)
+            else if (data.error) {
+                updateStatusIndicator(`Lỗi từ ESP32: ${data.error}`, 'error');
+            } else {
+                 // Trường hợp nhận dữ liệu không khớp action đã biết
+                 console.log("Nhận dữ liệu không xác định: ", data);
+            }
+        }
+
+        // Hàm cập nhật thanh trạng thái
+        function updateStatusIndicator(message, statusClass) {
+            if (statusIndicator) {
+                statusIndicator.textContent = `Trạng thái: ${message}`;
+                statusIndicator.className = ''; // Xóa class cũ
+                statusIndicator.classList.add(statusClass); // Thêm class mới (để styling nếu muốn)
+            }
+        }
+
+        // Hàm set active cho nút chế độ (Lưu/Xuất)
+        function setActiveButton(activeButton) {
+            clearActiveButton(); // Xóa active của nút khác
+            if (activeButton) {
+                activeButton.classList.add('active');
+            }
+        }
+        function clearActiveButton() {
+             if(btnLuuKho) btnLuuKho.classList.remove('active');
+             if(btnXuatKho) btnXuatKho.classList.remove('active');
+        }
+
+         // Hàm set active cho ô vị trí
+        function setActiveLocation(locationValue) {
+            clearActiveLocation(); // Xóa active của ô vị trí khác
+            locationCells.forEach(cell => {
+                if (cell.dataset.value === locationValue) {
+                    cell.classList.add('active');
+                }
+            });
+        }
+        function clearActiveLocation() {
+            locationCells.forEach(cell => {
+                cell.classList.remove('active');
+            });
+        }
+
+        // Hàm gửi lệnh qua WebSocket khi nhấn nút trên web
+        function sendWsCommand(element) {
+            // Chỉ gửi lệnh nếu WebSocket đang mở
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                console.log("WebSocket chưa mở. Không thể gửi lệnh.");
+                updateStatusIndicator('Chưa kết nối, không thể gửi lệnh', 'error');
+                // Thử kết nối lại
+                initWebSocket();
+                return;
+            }
+
+            const action = element.dataset.action;
+            let value = element.dataset.value; // Lấy value từ data-value (nếu có)
+
+            // Kiểm tra nếu chọn vị trí mà chưa chọn chế độ (tùy chọn)
+            // if (action === 'location' && !currentMode) {
+            //     alert("Vui lòng chọn chế độ Lưu kho hoặc Xuất kho trước!");
+            //     return;
+            // }
+
+            console.log(`Đã nhấn nút web: Action=${action}, Value=${value}`);
+
+            // Tạo đối tượng JSON để gửi
+            const message = { action: action };
+            if (value) { // Chỉ thêm value nếu nó tồn tại và không rỗng
+                 message.value = value;
+            }
+            const jsonMessage = JSON.stringify(message);
+
+            // Gửi đi
+            websocket.send(jsonMessage);
+            console.log("Đã gửi lệnh WS: " + jsonMessage);
+
+            // Cập nhật UI tạm thời ngay lập tức để phản hồi nhanh hơn
+            // ESP32 sẽ gửi lại trạng thái chính xác sau khi xử lý xong
+            // updateUI({ action: action, value: value, source: 'web' }); // Cập nhật tạm thời (có thể gây xung đột nếu ESP32 chậm)
+            // Để UI chính xác nhất, nên chờ phản hồi từ ESP32
+        }
+    </script>
+</body>
+</html>
+)rawliteral";
+
+
+// --- KHAI BÁO ĐỐI TƯỢNG TOÀN CỤC ---
+AsyncWebServer server(80);          // Đối tượng Web Server trên cổng 80
+AsyncWebSocket ws("/ws");           // Đối tượng WebSocket tại endpoint /ws
+LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS); // Đối tượng LCD I2C
+HardwareSerial SerialPort(1);       // Sử dụng UART1 (Serial1)
+
+// --- KHAI BÁO BIẾN TOÀN CỤC ---
+
+// Biến cho việc chống dội nút bấm (Debounce)
+unsigned long lastDebounceTimeLuuKho = 0;
+unsigned long lastDebounceTimeXuatKho = 0;
+unsigned long lastDebounceTimeOff = 0;
+int lastButtonStateLuuKho = HIGH;
+int lastButtonStateXuatKho = HIGH;
+int lastButtonStateOff = HIGH;
+
+// --- KHAI BÁO HÀM (PROTOTYPES) ---
+// Hàm tiện ích
+void updateLCD(String line1, String line2 = "");
+void broadcastStatus(const char* action, String value = "", const char* source = SOURCE_ESP32);
+
+// Hàm xử lý logic chính
+void activateLuuKho();
+void activateXuatKho();
+void deactivateAll();
+void handleLocation(String value);
+void sendSerialCommand(const char* command); // Hàm gửi lệnh qua Serial
+
+// Hàm xử lý sự kiện
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+void checkPhysicalButton(int buttonPin, int &lastButtonState, unsigned long &lastDebounceTime, const char* actionName); // Bỏ serialCommand vì đã gửi trong activate/deactivate
+
+// Hàm khởi tạo
+void setupPins();
+void setupLCD();
+bool connectWiFi();
+void setupWebServer();
+void setupSerialPort();
+
+// Hàm Arduino chính
+void setup();
+void loop();
+
+// --- CÁC HÀM TIỆN ÍCH ---
+
+/**
+ * @brief Cập nhật nội dung hiển thị trên màn hình LCD.
+ * @param line1 Nội dung dòng 1.
+ * @param line2 Nội dung dòng 2 (tùy chọn).
+ */
+void updateLCD(String line1, String line2) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(line1.substring(0, LCD_COLS)); // Giới hạn độ dài chuỗi
+    if (line2 != "") {
+        lcd.setCursor(0, 1);
+        lcd.print(line2.substring(0, LCD_COLS)); // Giới hạn độ dài chuỗi
+    }
+    Serial.println("LCD Updated: " + line1 + " | " + line2);
+}
+
+/**
+ * @brief Gửi thông điệp trạng thái (JSON) qua WebSocket cho tất cả client đang kết nối.
+ * @param action Hành động được thực hiện (vd: "luu_kho", "xuat_kho").
+ * @param value Giá trị liên quan đến hành động (vd: "A1", "B2").
+ * @param source Nguồn gốc của hành động ("physical", "web", "esp32").
+ */
+void broadcastStatus(const char* action, String value, const char* source) {
+    DynamicJsonDocument doc(256); // Tăng nhẹ kích thước nếu cần
+    doc["action"] = action;
+    if (value != "") {
+        doc["value"] = value;
+    }
+    doc["source"] = source;
+
+    String jsonString;
+    serializeJson(doc, jsonString);
+
+    Serial.print("Broadcasting WS: ");
+    Serial.println(jsonString);
+    ws.textAll(jsonString); // Gửi tới tất cả client
+}
+
+// --- CÁC HÀM XỬ LÝ LOGIC CHÍNH ---
+
+/**
+ * @brief Kích hoạt chế độ Lưu Kho.
+ */
+void activateLuuKho() {
+    digitalWrite(LUU_KHO_PIN, HIGH);
+    digitalWrite(XUAT_KHO_PIN, LOW); // Đảm bảo chế độ kia tắt
+    updateLCD("Che do: LUU KHO", "Dang hoat dong");
+    Serial.println("Hành động: LƯU KHO kích hoạt");
+    sendSerialCommand("L"); // Gửi lệnh 'L' qua Serial
+}
+
+/**
+ * @brief Kích hoạt chế độ Xuất Kho.
+ */
+void activateXuatKho() {
+    digitalWrite(XUAT_KHO_PIN, HIGH);
+    digitalWrite(LUU_KHO_PIN, LOW); // Đảm bảo chế độ kia tắt
+    updateLCD("Che do: XUAT KHO", "Dang hoat dong");
+    Serial.println("Hành động: XUẤT KHO kích hoạt");
+    sendSerialCommand("X"); // Gửi lệnh 'X' qua Serial
+}
+
+/**
+ * @brief Tắt tất cả các chế độ (Dừng).
+ */
+void deactivateAll() {
+    digitalWrite(LUU_KHO_PIN, LOW);
+    digitalWrite(XUAT_KHO_PIN, LOW);
+    updateLCD("Che do: OFF", "Da dung");
+    Serial.println("Hành động: OFF kích hoạt (Dừng)");
+    sendSerialCommand("O"); // Gửi lệnh 'O' (hoặc 'OFF') qua Serial
+}
+
+/**
+ * @brief Xử lý khi người dùng chọn một vị trí trên Web Interface hoặc từ nguồn khác.
+ * @param value Tên vị trí được chọn (vd: "A1", "B2").
+ */
+void handleLocation(String value) {
+    // Hiện tại chỉ cập nhật LCD và Serial
+    // TODO: Thêm logic điều khiển dựa trên vị trí nếu cần, có thể kết hợp với currentMode
+    updateLCD("Chon vi tri:", value);
+    Serial.print("Lựa chọn vị trí: ");
+    Serial.println(value);
+    // Gửi vị trí qua Serial nếu cần thiết, ví dụ: sendSerialCommand(value.c_str());
+}
+
+/**
+ * @brief Gửi một lệnh dưới dạng chuỗi qua cổng Serial đã cấu hình.
+ * @param command Chuỗi lệnh cần gửi.
+ */
+void sendSerialCommand(const char* command) {
+    SerialPort.println(command);
+    Serial.printf("Sent Serial Command: %s\n", command);
+}
+
+
+// --- CÁC HÀM XỬ LÝ SỰ KIỆN ---
+
+/**
+ * @brief Hàm callback xử lý các sự kiện từ WebSocket.
+ */
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+                          void *arg, uint8_t *data, size_t len)
+{
+    switch (type) {
+        case WS_EVT_CONNECT:
+            Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            // Gửi trạng thái hiện tại cho client mới kết nối (tùy chọn)
+            // Bạn cần lưu trạng thái hiện tại của các chân điều khiển và vị trí đã chọn
+            // broadcastStatus("initial_state", "current_value");
+            break;
+        case WS_EVT_DISCONNECT:
+            Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            break;
+        case WS_EVT_DATA: { // Sử dụng {} để tạo scope cho biến trong case
+            AwsFrameInfo *info = (AwsFrameInfo*)arg;
+            if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+                data[len] = 0; // Đảm bảo chuỗi kết thúc bằng null
+                String jsonStr = (char*)data;
+                Serial.print("Nhan JSON tu client Web: ");
+                Serial.println(jsonStr);
+
+                DynamicJsonDocument doc(256); // Tăng kích thước nếu JSON phức tạp hơn
+                DeserializationError error = deserializeJson(doc, jsonStr);
+
+                if (error) {
+                    Serial.print("Loi phan tich JSON: ");
+                    Serial.println(error.c_str());
+                    updateLCD("Loi JSON!", error.c_str());
+                    // Gửi phản hồi lỗi về client nếu cần
+                    // client->text("{\"error\":\"Invalid JSON\"}");
+                    return;
+                }
+
+                // Sử dụng as<const char*>() an toàn hơn khi so sánh
+                const char* action = doc["action"] | "unknown"; // Giá trị mặc định nếu key không tồn tại
+                String value = doc["value"].as<String>();      // Lấy value dạng String
+
+                Serial.print("Action: "); Serial.println(action);
+                Serial.print("Value: "); Serial.println(value);
+
+                // Xử lý lệnh dựa trên action và value từ Web
+                if (strcmp(action, ACTION_LUU_KHO) == 0) {
+                    activateLuuKho();
+                    // Thông báo lại cho tất cả client khác về sự thay đổi (tùy chọn value nếu cần)
+                    broadcastStatus(ACTION_LUU_KHO, "", SOURCE_WEB);
+                } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
+                    activateXuatKho();
+                    broadcastStatus(ACTION_XUAT_KHO, "", SOURCE_WEB);
+                } else if (strcmp(action, ACTION_LOCATION) == 0) {
+                    // Xử lý vị trí chỉ khi có value
+                    if (value != "") {
+                        handleLocation(value);
+                        broadcastStatus(ACTION_LOCATION, value, SOURCE_WEB);
+                    } else {
+                        Serial.println("Lenh LOCATION thieu value!");
+                         updateLCD("Loi:", "Thieu V.tri");
+                    }
+                } else if (strcmp(action, ACTION_OFF) == 0) {
+                    // Nếu bạn muốn thêm nút OFF trên Web
+                     deactivateAll();
+                     broadcastStatus(ACTION_OFF, "", SOURCE_WEB);
+                }
+                else {
+                    Serial.println("Lenh khong ro tu Web!");
+                    updateLCD("Lenh khong ro", action);
+                    // client->text("{\"error\":\"Unknown action\"}");
+                }
+            }
+            break;
+        }
+        case WS_EVT_PONG:
+            // Serial.printf("WebSocket client #%u pong\n", client->id());
+            break;
+        case WS_EVT_ERROR:
+            Serial.printf("WebSocket client #%u error(%u): %s\n", client->id(), *((uint16_t*)arg), (char*)data);
+            break;
+    }
+}
+
+/**
+ * @brief Kiểm tra trạng thái nút bấm vật lý, xử lý chống dội và thực hiện hành động tương ứng.
+ * @param buttonPin Chân GPIO của nút bấm.
+ * @param lastButtonState Trạng thái cuối cùng của nút (tham chiếu).
+ * @param lastDebounceTime Thời điểm cuối cùng trạng thái thay đổi (tham chiếu).
+ * @param actionName Tên hành động để hiển thị và gửi qua WebSocket.
+ */
+void checkPhysicalButton(int buttonPin, int &lastButtonState, unsigned long &lastDebounceTime, const char* actionName) {
+    int reading = digitalRead(buttonPin);
+    unsigned long currentTime = millis();
+
+    // Nếu trạng thái thay đổi, reset bộ đếm thời gian debounce
+    if (reading != lastButtonState) {
+        lastDebounceTime = currentTime;
+    }
+
+    // Nếu đủ thời gian debounce trôi qua VÀ trạng thái hiện tại khác trạng thái đã lưu
+    if ((currentTime - lastDebounceTime) > DEBOUNCE_DELAY) {
+        if (reading != lastButtonState) {
+            lastButtonState = reading;
+
+            // Chỉ xử lý khi nút được NHẤN (trạng thái LOW vì dùng INPUT_PULLUP)
+            if (reading == LOW) {
+                Serial.printf("Nut vat ly %s da nhan!\n", actionName);
+                updateLCD("Nut da nhan:", actionName);
+
+                // Thực hiện hành động tương ứng
+                if (strcmp(actionName, ACTION_LUU_KHO) == 0) {
+                    activateLuuKho(); // activateLuuKho đã bao gồm sendSerialCommand
+                } else if (strcmp(actionName, ACTION_XUAT_KHO) == 0) {
+                    activateXuatKho(); // activateXuatKho đã bao gồm sendSerialCommand
+                } else if (strcmp(actionName, ACTION_OFF) == 0) {
+                    deactivateAll(); // deactivateAll đã bao gồm sendSerialCommand
+                }
+
+                // Gửi trạng thái lên WebSocket
+                broadcastStatus(actionName, "", SOURCE_PHYSICAL);
+
+                // Đợi một chút để tránh nhấn liên tục quá nhanh (tùy chọn)
+                // delay(100); // Cẩn thận khi dùng delay trong loop chính
+            }
+        }
+    }
+    // Không cập nhật lastButtonState ở đây nữa, chỉ cập nhật khi debounce thành công
+}
+
+
+// --- CÁC HÀM KHỞI TẠO ---
+
+/**
+ * @brief Cấu hình các chân GPIO (INPUT/OUTPUT).
+ */
+void setupPins() {
+    pinMode(LUU_KHO_PIN, OUTPUT);
+    pinMode(XUAT_KHO_PIN, OUTPUT);
+
+    digitalWrite(LUU_KHO_PIN, LOW); // Đảm bảo tắt lúc khởi động
+    digitalWrite(XUAT_KHO_PIN, LOW);
+
+    pinMode(NUT_LUU_KHO_VATLY_PIN, INPUT_PULLUP);
+    pinMode(NUT_XUAT_KHO_VATLY_PIN, INPUT_PULLUP);
+    pinMode(NUT_OFF_VATLY_PIN, INPUT_PULLUP);
+
+    Serial.println("GPIO pins configured.");
+}
+
+/**
+ * @brief Khởi tạo màn hình LCD I2C.
+ */
+void setupLCD() {
+    lcd.init();
+    lcd.backlight();
+    updateLCD("Khoi dong...", "Xin cho");
+    Serial.println("LCD initialized.");
+}
+
+/**
+ * @brief Khởi tạo cổng Serial để giao tiếp với board khác.
+ */
+void setupSerialPort() {
+    SerialPort.begin(115200, SERIAL_8N1, SERIAL1_RX_PIN, SERIAL1_TX_PIN);
+    Serial.println("Serial1 port initialized at 115200 baud.");
+    // Gửi tín hiệu khởi động nếu cần
+    // sendSerialCommand("INIT");
+}
+
+
+/**
+ * @brief Kết nối vào mạng Wi-Fi đã cấu hình.
+ * @return true nếu kết nối thành công, false nếu thất bại.
+ */
+bool connectWiFi() {
+    updateLCD("Ket noi Wifi...", WIFI_SSID);
+    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    int attempts = 0;
+    const int maxAttempts = 30; // Tăng giới hạn thử lên 15 giây (30 * 500ms)
+
+    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+        // Nhấp nháy LCD để báo hiệu đang kết nối
+        if (attempts % 2 == 0) updateLCD("Ket noi Wifi...", WIFI_SSID);
+        else updateLCD("Ket noi Wifi...", "");
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nFailed to connect to WiFi!");
+        updateLCD("Loi Wifi!", "Kiem tra mang");
+        // Cân nhắc thêm: Chuyển sang chế độ Access Point (AP) để cấu hình lại
+        // WiFi.mode(WIFI_AP); WiFi.softAP("ESP32_KhoHang", "12345678");
+        // Serial.print("AP IP address: "); Serial.println(WiFi.softAPIP());
+        return false;
+    } else {
+        Serial.println("\nWiFi connected!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+        updateLCD("Wifi OK!", WiFi.localIP().toString());
+        delay(1000); // Chờ ổn định mạng
+        return true;
+    }
+}
+
+/**
+ * @brief Cấu hình và khởi động Web Server và WebSocket Server.
+ */
+void setupWebServer() {
+    // Cấu hình WebSocket
+    ws.onEvent(handleWebSocketEvent); // Đăng ký hàm xử lý sự kiện WebSocket
+    server.addHandler(&ws);           // Gắn WebSocket handler vào Web Server
+    Serial.println("WebSocket server configured.");
+
+    // Phục vụ trang HTML chính
+    // trangHtml đã được khai báo ở đầu file
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send_P(200, "text/html", trangHtml); // Gửi nội dung HTML từ PROGMEM
+    });
+
+    // Xử lý trang không tìm thấy (404)
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        request->send(404, "text/plain", "404 Not Found");
+    });
+
+    // Khởi động server
+    server.begin();
+    Serial.println("HTTP server started.");
+}
+
+// --- HÀM SETUP VÀ LOOP CHÍNH ---
+
+/**
+ * @brief Hàm khởi tạo chính của Arduino.
+ */
+void setup() {
+    Serial.begin(115200); // Khởi tạo Serial Monitor để debug
+    Serial.println("\n===================================");
+    Serial.println("    KHOI DONG HE THONG LUU KHO    ");
+    Serial.println("===================================");
+
+    setupLCD();         // Khởi tạo LCD trước để hiển thị thông báo
+    setupPins();        // Cấu hình chân GPIO
+    setupSerialPort();  // Khởi tạo cổng Serial phụ
+
+    if (!connectWiFi()) {
+        // Xử lý khi không kết nối được Wi-Fi (ví dụ: dừng hẳn hoặc vào chế độ AP)
+        Serial.println("Halting due to WiFi connection failure.");
+        // while(true) { delay(1000); } // Dừng chương trình vĩnh viễn
+        // Hoặc có thể chuyển sang chế độ AP tại đây
+    } else {
+        setupWebServer(); // Khởi tạo Web Server và WebSocket sau khi có IP
+        updateLCD("San sang!", "IP:" + WiFi.localIP().toString());
+         Serial.println("System ready.");
+    }
+
+
+    // Đọc trạng thái ban đầu của nút bấm sau khi ổn định
+    delay(100); // Đợi một chút để tín hiệu ổn định
+    lastButtonStateLuuKho = digitalRead(NUT_LUU_KHO_VATLY_PIN);
+    lastButtonStateXuatKho = digitalRead(NUT_XUAT_KHO_VATLY_PIN);
+    lastButtonStateOff = digitalRead(NUT_OFF_VATLY_PIN);
+
+}
+
+/**
+ * @brief Vòng lặp chính của Arduino.
+ */
+void loop() {
+    // Chỉ chạy server và kiểm tra nút bấm nếu WiFi đã kết nối thành công
+    if (WiFi.status() == WL_CONNECTED) {
+        ws.cleanupClients(); // Dọn dẹp các client WebSocket không còn hoạt động
+
+        // Kiểm tra các nút bấm vật lý
+        checkPhysicalButton(NUT_LUU_KHO_VATLY_PIN, lastButtonStateLuuKho, lastDebounceTimeLuuKho, ACTION_LUU_KHO);
+        checkPhysicalButton(NUT_XUAT_KHO_VATLY_PIN, lastButtonStateXuatKho, lastDebounceTimeXuatKho, ACTION_XUAT_KHO);
+        checkPhysicalButton(NUT_OFF_VATLY_PIN, lastButtonStateOff, lastDebounceTimeOff, ACTION_OFF);
+
+        // Có thể thêm các tác vụ khác ở đây nếu cần (đọc cảm biến, xử lý dữ liệu Serial nhận được,...)
+        // Ví dụ đọc dữ liệu từ SerialPort:
+        // if (SerialPort.available()) {
+        //     String receivedData = SerialPort.readStringUntil('\n');
+        //     receivedData.trim(); // Xóa ký tự xuống dòng/khoảng trắng
+        //     Serial.print("Received from SerialPort: ");
+        //     Serial.println(receivedData);
+        //     // TODO: Xử lý dữ liệu nhận được từ SerialPort
+        //     // Ví dụ: Nếu nhận được "DONE_L", cập nhật trạng thái LCD/Web
+        //     // if (receivedData == "DONE_L") {
+        //     //    updateLCD("Luu kho:", "Hoan thanh!");
+        //     //    broadcastStatus("status", "Luu kho hoan thanh", SOURCE_ESP32);
+        //     // }
+        // }
+    } else {
+       // Nếu mất kết nối WiFi, có thể thử kết nối lại hoặc hiển thị lỗi
+       // Serial.println("WiFi Disconnected. Attempting to reconnect...");
+       // updateLCD("Mat ket noi Wifi", "Dang thu lai...");
+       // connectWiFi(); // Có thể gọi lại hàm connectWiFi
+       delay(1000); // Đợi trước khi thử lại
+    }
+
+
+    // Thêm một delay ngắn để ESP32 có thời gian thực hiện các tác vụ khác
+    // delay(1); // Có thể điều chỉnh hoặc bỏ comment nếu cần độ phản hồi nhanh
+}
