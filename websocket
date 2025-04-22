@@ -71,46 +71,113 @@ const char trangHtml[] PROGMEM = R"rawliteral(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Giao diện Nghiên cứu Thiết kế</title>
     <style>
+        /* Reset CSS */
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Times New Roman', Times, serif; }
         body { background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
         .container { max-width: 1100px; width: 100%; padding: 20px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 0 20px rgba(0, 0, 0, 0.1); }
+        /* Header Styles */
         .header { display: flex; flex-direction: column; align-items: center; margin-bottom: 40px; border-bottom: 2px solid #003087; padding-bottom: 20px; text-align: center; }
         .header-text { text-align: center; }
         .header h1 { font-size: 28px; color: #003087; text-transform: uppercase; margin-bottom: 10px; }
-        .header h3 { font-size: 18px; color: #003087; }
+        .header h3 { font-size: 18px; color: #003087; margin-bottom: 5px; }
         .color-primary { color: #003087; }
-        .main-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; /* Cho phép wrap trên màn hình nhỏ */ }
-        .table-container { width: 100%; max-width: 450px; /* Giới hạn chiều rộng tối đa */ margin-bottom: 20px; } /* Điều chỉnh width và thêm max-width */
+        /* Main Content Styles */
+        .main-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
+        /* Table Styles */
+        .table-container { width: 100%; max-width: 450px; margin-bottom: 20px; }
         .table-header { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 10px; }
-        .table-title { border: 2px solid #003087; color: #003087; padding: 12px 15px; /* Giảm padding */ font-weight: bold; text-align: center; flex: 1; /* Chia đều không gian */ font-size: 16px; background-color: #f0f8ff; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
+        .table-title { border: 2px solid #003087; color: #003087; padding: 12px 15px; font-weight: bold; text-align: center; flex: 1; font-size: 16px; background-color: #f0f8ff; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
         .table-title:hover { background-color: #d0e7ff; }
         .table-title:active { transform: scale(0.98); }
-        .table-title.active { background-color: #4682b4; color: white; } /* Thêm màu chữ trắng khi active */
+        .table-title.active { background-color: #4682b4; color: white; }
         .table-body { border: 2px solid #003087; border-top: none; background-color: #f0f8ff; padding: 5px; border-radius: 0 0 5px 5px; }
         .row { display: flex; justify-content: space-between; gap: 5px; margin-bottom: 5px; }
-        .cell { width: 48%; height: 70px; /* Giảm chiều cao */ display: flex; justify-content: center; align-items: center; font-size: 22px; /* Giảm font size */ font-weight: bold; color: #003087; border: 1px solid #003087; background-color: white; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; }
+        .cell { width: 48%; height: 70px; display: flex; justify-content: center; align-items: center; font-size: 22px; font-weight: bold; color: #003087; border: 1px solid #003087; background-color: white; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s; }
         .cell:hover { background-color: #d0e7ff; }
         .cell:active { transform: scale(0.98); }
-        .cell.active { background-color: #4682b4; color: white; } /* Thêm màu chữ trắng khi active */
-        .text-content { width: 100%; max-width: 550px; font-size: 16px; color: #000; line-height: 1.6; } /* Điều chỉnh width và thêm max-width */
-        .text-row { display: flex; flex-direction: row; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; /* Cho phép wrap */ }
-        .text-column { width: 100%; /* Mặc định full width */ }
-        .text-column.left { font-weight: bold; color: #003087; min-width: 180px; /* Đảm bảo cột trái đủ rộng */}
-        .text-column.right { color: #003087; flex: 1; /* Cột phải chiếm phần còn lại */ }
-        .text-column p { margin-bottom: 5px; } /* Giảm margin */
-        #status-indicator { margin-top: 20px; padding: 10px; background-color: #e0e0e0; border-radius: 5px; text-align: center; font-weight: bold; color: #333; }
+        .cell.active { background-color: #4682b4; color: white; }
 
-        @media (max-width: 992px) { /* Điều chỉnh breakpoint */
-             .main-content { flex-direction: column; align-items: center; gap: 20px; }
-             .table-container, .text-content { max-width: 600px; width: 100%; /* Đảm bảo chiếm full width container */}
+        /* Text Content Styles - Adjusted for 2-column layout */
+        .text-content {
+            width: 100%; /* Chiếm toàn bộ chiều rộng trong main-content (trên màn hình lớn) */
+            max-width: 550px; /* Giới hạn chiều rộng tối đa */
+            font-size: 16px;
+            color: #000; /* Màu chữ mặc định */
+            line-height: 1.6;
         }
-        @media (max-width: 480px) { /* Cho màn hình rất nhỏ */
+        /* Tạo hàng (row) cho mỗi cặp tiêu đề - nội dung */
+        .text-row {
+            display: flex;
+            flex-direction: row; /* Mặc định là 2 cột */
+            margin-bottom: 15px; /* Khoảng cách giữa các hàng */
+            gap: 20px; /* Khoảng cách giữa cột trái và cột phải */
+            flex-wrap: wrap; /* Cho phép xuống dòng trên màn hình nhỏ */
+            align-items: flex-start; /* Căn đầu hàng */
+        }
+        .text-row:last-child {
+            margin-bottom: 0; /* Không cách dưới cùng */
+        }
+
+        /* Định nghĩa cột trái và cột phải */
+        .text-column {
+            /* Bỏ width: 100%; mặc định */
+        }
+        .text-column.left {
+            font-weight: bold;
+            color: #003087;
+            flex-basis: 200px; /* Độ rộng ưa thích ban đầu */
+            flex-shrink: 0; /* Không co lại dưới kích thước ưa thích trừ khi cần */
+        }
+        .text-column.right {
+            color: #003087;
+            flex-grow: 1; /* Mở rộng để lấp đầy không gian còn lại */
+            /* Bỏ flex: 1; */
+        }
+        /* Điều chỉnh khoảng cách giữa các đoạn văn trong cột phải */
+        .text-column.right p {
+            margin-bottom: 3px; /* Khoảng cách nhỏ giữa các tên */
+        }
+        .text-column.right p:last-child {
+            margin-bottom: 0; /* Bỏ khoảng cách dưới tên cuối cùng */
+        }
+
+
+        /* Responsive Styles - Đảm bảo cấu trúc này chuyển thành 1 cột trên màn hình nhỏ */
+        @media (max-width: 992px) { /* Adjust breakpoint if needed */
+             .main-content { flex-direction: column; align-items: center; gap: 20px; } /* Giữ nguyên */
+             .table-container, .text-content { max-width: 600px; width: 100%; } /* Giữ nguyên */
+
+             /* Chuyển text-row thành 1 cột trên màn hình nhỏ */
+             .text-row {
+                 flex-direction: column; /* Chuyển thành 1 cột */
+                 gap: 5px; /* Giảm khoảng cách */
+                 align-items: center; /* Căn giữa nội dung trong hàng */
+                 text-align: center; /* Căn giữa văn bản */
+             }
+             /* Điều chỉnh cột trái và phải khi ở chế độ 1 cột */
+             .text-column.left,
+             .text-column.right {
+                 flex-basis: auto; /* Bỏ kích thước ưa thích */
+                 flex-shrink: 1; /* Cho phép co lại */
+                 flex-grow: 0; /* Không mở rộng quá cần thiết */
+                 width: 100%; /* Chiếm toàn bộ chiều rộng hàng */
+                 text-align: center; /* Căn giữa nội dung */
+             }
+              .text-column.left {
+                   margin-bottom: 5px; /* Thêm khoảng cách dưới tiêu đề khi ở 1 cột */
+              }
+              .text-column.right p {
+                   margin-bottom: 3px; /* Giữ khoảng cách giữa các tên */
+                   text-align: center; /* Căn giữa tên */
+              }
+
+        }
+        @media (max-width: 480px) {
              .header h1 { font-size: 22px; }
              .header h3 { font-size: 16px; }
              .table-title { font-size: 14px; padding: 10px 12px; }
              .cell { height: 60px; font-size: 18px; }
              .text-content { font-size: 14px; }
-             .text-column.left { min-width: 120px; }
         }
     </style>
 </head>
@@ -118,10 +185,12 @@ const char trangHtml[] PROGMEM = R"rawliteral(
     <div class="container">
         <div class="header">
             <div class="header-text">
-                <h1>NGHIÊN CỨU THIẾT KẾ MÔ HÌNH LƯU KHO THÔNG MINH</h1>
-                <h3>ĐẠI HỌC ĐIỆN LỰC<br>ELECTRIC POWER UNIVERSITY</h3>
+                <h1>ĐẠI HỌC ĐIỆN LỰC ELECTRIC POWER UNIVERSITY</h1>
+                <h3>NGHIÊN CỨU THIẾT KẾ MÔ HÌNH LƯU KHO THÔNG MINH</h3>
+                <h3>Mã số đề tài : ĐTNH.96/2025<h3>
             </div>
         </div>
+
         <div class="main-content">
             <div class="table-container">
                 <div class="table-header">
@@ -130,30 +199,49 @@ const char trangHtml[] PROGMEM = R"rawliteral(
                 </div>
                 <div class="table-body">
                     <div class="row">
-                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
+                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="C1">C1</div>
                     </div>
                     <div class="row">
-                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
+                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="B1">B1</div>
                     </div>
                     <div class="row">
-                        <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
+                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
                         <div class="cell" onclick="sendWsCommand(this)" data-action="location" data-value="A1">A1</div>
                     </div>
                 </div>
                 <div id="status-indicator">Trạng thái: Đang chờ...</div>
             </div>
+
             <div class="text-content">
                 <div class="text-row">
-                    <div class="text-column left">SINH VIÊN THỰC HIỆN</div>
-                    <div class="text-column right">
-                        <p>NGUYỄN MINH TRÍ</p> <p>TRẦN KHẮC THÀNH</p> <p>NGUYỄN PHAN DUY TÂN</p> <p>NGUYỄN TIẾN HẢI</p> <p>ĐỖ MINH THẾ</p>
+                    <div class="text-column left">
+                        <p class="color-primary">SINH VIÊN THỰC HIỆN</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>NGUYỄN MINH TRÍ</p>
+                        <p>TRẦN KHẮC THÀNH</p>
+                        <p>NGUYỄN PHAN DUY TÂN</p>
+                        <p>NGUYỄN TIẾN HẢI</p>
+                        <p>ĐỖ MINH THẾ</p>
                     </div>
                 </div>
                 <div class="text-row">
-                    <div class="text-column left">GIẢNG VIÊN HƯỚNG DẪN</div>
-                    <div class="text-column right"> <p>TS. ĐOÀN THỊ HƯƠNG GIANG</p> </div>
+                    <div class="text-column left">
+                        <p class="color-primary">CHỦ NHIỆM ĐỀ TÀI</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>NGUYỄN MINH TRÍ</p>
+                    </div>
+                </div>
+                <div class="text-row">
+                    <div class="text-column left">
+                        <p class="color-primary">GIẢNG VIÊN HƯỚNG DẪN</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>TS. ĐOÀN THỊ HƯƠNG GIANG</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -191,7 +279,7 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         function onOpen(event) {
             console.log('WebSocket Đã Mở');
             updateStatusIndicator('Đã kết nối', 'connected');
-            // Yêu cầu trạng thái hiện tại từ ESP32 khi kết nối thành công (nếu ESP32 hỗ trợ)
+            // Yêu cầu trạng thái hiện tại từ ESP32 khi kết nối thành công (tùy chọn)
             // websocket.send(JSON.stringify({ action: 'get_status' }));
         }
 
@@ -315,7 +403,7 @@ const char trangHtml[] PROGMEM = R"rawliteral(
 
             // Tạo đối tượng JSON để gửi
             const message = { action: action };
-            if (value) { // Chỉ thêm value nếu nó tồn tại và không rỗng
+            if (value !== undefined && value !== null) { // Chỉ thêm value nếu nó tồn tại và không null/undefined
                  message.value = value;
             }
             const jsonMessage = JSON.stringify(message);
