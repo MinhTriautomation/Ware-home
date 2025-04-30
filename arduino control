@@ -116,11 +116,11 @@ void setup(){
   digitalWrite(chanPulY, LOW);
   digitalWrite(chanPulZ, LOW);
 
-  myServo.attach(servoPin);
+  myServo.attach(10);
 
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
-  
+
 }
 //Loop
 void loop(){
