@@ -1,0 +1,698 @@
+#ifdef ESP8266
+#error "Code nay duoc thiet ke cho ESP32, vui long chon dung board."
+#elif defined(ESP32)
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#else
+#error "Board khong duoc ho tro."
+#endif
+
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <LiquidCrystal_I2C.h>
+#include <ArduinoJson.h>
+#include <Arduino.h>
+
+const char *AP_SSID = "ESP32_KHO_THONG_MINH";
+const char *AP_PASSWORD = "";
+
+const int LCD_ADDRESS = 0x27;
+const int LCD_COLS = 16;
+const int LCD_ROWS = 2;
+
+const int LUU_KHO_PIN = 12;
+const int XUAT_KHO_PIN = 13;
+
+const int NUT_ON_VATLY_PIN     = 25;
+const int NUT_OFF_VATLY_PIN    = 26;
+const int NUT_RESET_VATLY_PIN  = 27;
+
+const char* ACTION_LUU_KHO = "luu_kho";
+const char* ACTION_XUAT_KHO = "xuat_kho";
+const char* ACTION_LOCATION = "location";
+const char* ACTION_OFF       = "off";
+const char* ACTION_ON        = "on";
+const char* ACTION_RESET     = "reset";
+
+const char* SOURCE_PHYSICAL = "physical";
+const char* SOURCE_WEB = "web";
+const char* SOURCE_ESP32 = "esp32";
+
+const char trangHtml[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giao dien Nghien cuoc Thiet ke</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Times New Roman', Times, serif; }
+        body { background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1100px; width: 100%; padding: 20px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 0 20px rgba(0, 0, 0, 0.1); }
+        .header { display: flex; flex-direction: column; align-items: center; margin-bottom: 40px; border-bottom: 2px solid #003087; padding-bottom: 20px; text-align: center; }
+        .header-text { text-align: center; }
+        .header h1 { font-size: 28px; color: #003087; text-transform: uppercase; margin-bottom: 10px; }
+        .header h3 { font-size: 18px; color: #003087; margin-bottom: 5px; }
+        .color-primary { color: #003087; }
+        .main-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
+
+        .control-panel { width: 100%; max-width: 450px; margin-bottom: 20px; border: 2px solid #003087; border-radius: 10px; background-color: #f0f8ff; padding: 10px; box-sizing: border-box; }
+
+        .clickable-item {
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             border: 2px solid #003087;
+             color: #003087;
+             font-weight: bold;
+             text-align: center;
+             background-color: #f0f8ff;
+             border-radius: 5px;
+             cursor: pointer;
+             transition: background-color 0.3s, transform 0.1s;
+             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+         .clickable-item:hover { background-color: #d0e7ff; }
+         .clickable-item:active { transform: scale(0.98); }
+         .clickable-item.active { background-color: #4682b4; color: white; }
+
+
+        .mode-button {
+            flex: 1;
+            padding: 12px 15px;
+            font-size: 16px;
+        }
+
+        .button-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .button-row:last-child {
+            margin-bottom: 0;
+        }
+
+
+        .location-cell {
+             width: 48%;
+             height: 70px;
+             font-size: 22px;
+             border: 1px solid #003087;
+             background-color: white;
+        }
+         .location-cell:hover { background-color: #d0e7ff; }
+         .location-cell:active { transform: scale(0.98); }
+         .location-cell.active { background-color: #4682b4; color: white; }
+
+
+        #status-indicator {
+            margin-top: 15px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #eee;
+            font-size: 14px;
+            text-align: center;
+            color: #333;
+        }
+        #status-indicator.connecting { color: #ff9800; border-color: #ff9800; }
+        #status-indicator.connected { color: #4caf50; border-color: #4caf50; }
+        #status-indicator.disconnected { color: #f44336; border-color: #f44336; }
+        #status-indicator.error { color: #f44336; border-color: #f44336; font-weight: bold; }
+        #status-indicator.active { color: #2196f3; border-color: #2196f3; font-weight: bold; }
+        #status-indicator.idle { color: #607d8b; border-color: #607d8b; }
+        #status-indicator.info { color: #009688; border-color: #009688; }
+
+
+        .text-content {
+            width: 100%;
+            max-width: 550px;
+            font-size: 16px;
+            color: #000;
+            line-height: 1.6;
+        }
+        .text-row {
+            display: flex;
+            flex-direction: row;
+            margin-bottom: 15px;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }
+        .text-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .text-column {
+        }
+        .text-column.left {
+            font-weight: bold;
+            color: #003087;
+            flex-basis: 200px;
+            flex-shrink: 0;
+        }
+        .text-column.right {
+            color: #003087;
+            flex-grow: 1;
+        }
+        .text-column.right p {
+            margin-bottom: 3px;
+        }
+        .text-column.right p:last-child {
+            margin-bottom: 0;
+        }
+
+
+        @media (max-width: 992px) {
+             .main-content { flex-direction: column; align-items: center; gap: 20px; }
+             .control-panel, .text-content { max-width: 600px; width: 100%; }
+
+             .text-row { flex-direction: column; gap: 5px; align-items: center; text-align: center; }
+             .text-column.left, .text-column.right {
+                 flex-basis: auto; flex-shrink: 1; flex-grow: 0; width: 100%; text-align: center;
+             }
+              .text-column.left { margin-bottom: 5px; }
+              .text-column.right p { text-align: center; }
+
+        }
+        @media (max-width: 480px) {
+             .header h1 { font-size: 22px; }
+             .header h3 { font-size: 16px; }
+             .mode-button { font-size: 14px; padding: 10px 12px; }
+             .location-cell { font-size: 18px; height: 60px; }
+             .text-content { font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-text">
+                <h1>ĐẠI HỌC ĐIỆN LỰC ELECTRIC POWER UNIVERSITY</h1>
+                <h3>NGHIÊN CỨU THIẾT KẾ MÔ HÌNH LƯU KHO THÔNG MINH</h3>
+                <h3>MÃ SỐ ĐỀ TÀI : DTNH.96/2025<h3>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="control-panel">
+                <div class="button-row">
+                   <div id="btn-on" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="on">ON</div>
+                   <div id="btn-off" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="off">OFF</div>
+                   <div id="btn-reset" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="reset">RESET</div>
+                </div>
+                 <div class="button-row">
+                   <div id="btn-luu-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="luu_kho">LƯU KHO</div>
+                   <div id="btn-xuat-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="xuat_kho">XUẤT KHO</div>
+                 </div>
+                <div class="button-row">
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C1">C1</div>
+                </div>
+                <div class="button-row">
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="B1">B1</div>
+                </div>
+                <div class="button-row">
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
+                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="A1">A1</div>
+                </div>
+                <div id="status-indicator">Trang thai: Dang cho...</div>
+            </div>
+
+            <div class="text-content">
+                <div class="text-row">
+                    <div class="text-column left">
+                        <p class="color-primary">SINH VIÊN THỰC HIỆN</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>NGUYỄN MINH TRÍ</p>
+                        <p>TRẦN KHẮC THÀNH</p>
+                        <p>NGUYỄN PHAN DUY TÂN</p>
+                        <p>NGUYỄN TIẾN HẢI</p>
+                        <p>ĐỖ MINH THẾ</p>
+                    </div>
+                </div>
+                <div class="text-row">
+                    <div class="text-column left">
+                        <p class="color-primary">CHỦ NHIỆM ĐỀ TÀI</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>NGUYỄN MINH TRÍ</p>
+                    </div>
+                </div>
+                <div class="text-row">
+                    <div class="text-column left">
+                        <p class="color-primary">GIẢNG VIÊN HƯỚNG DẪN</p>
+                    </div>
+                    <div class="text-column right color-primary">
+                        <p>TS. ĐOÀN THỊ HƯƠNG GIANG</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const gateway = `ws://${window.location.hostname}/ws`;
+        let websocket;
+        const statusIndicator = document.getElementById('status-indicator');
+
+        const btnOn = document.getElementById('btn-on');
+        const btnOff = document.getElementById('btn-off');
+        const btnReset = document.getElementById('btn-reset');
+        const btnLuuKho = document.getElementById('btn-luu-kho');
+        const btnXuatKho = document.getElementById('btn-xuat-kho');
+        const locationCells = document.querySelectorAll('.location-cell[data-action="location"]');
+
+        let currentBroadcastedAction = null;
+        let currentBroadcastedLocation = null;
+
+
+        window.addEventListener('load', onLoad);
+
+        function onLoad() {
+            initWebSocket();
+        }
+
+        function initWebSocket() {
+            console.log('Attempting to open WebSocket...');
+            updateStatusIndicator('Connecting to ESP32...', 'connecting');
+            websocket = new WebSocket(gateway);
+            websocket.onopen = onOpen;
+            websocket.onclose = onClose;
+            websocket.onerror = onError;
+            websocket.onmessage = onMessage;
+        }
+
+        function onOpen(event) {
+            console.log('WebSocket Opened');
+            updateStatusIndicator('Connected', 'connected');
+        }
+
+        function onClose(event) {
+            console.log('WebSocket Closed');
+            updateStatusIndicator('Disconnected. Attempting to reconnect...', 'disconnected');
+            setTimeout(initWebSocket, 2000);
+        }
+
+        function onError(event) {
+            console.error('WebSocket Error: ', event);
+            updateStatusIndicator('WebSocket connection error', 'error');
+        }
+
+        function onMessage(event) {
+            console.log('Message from ESP32: ', event.data);
+            try {
+                const data = JSON.parse(event.data);
+                updateUI(data);
+            } catch (e) {
+                console.error("Error parsing JSON from ESP32:", e);
+                updateStatusIndicator(`Error data: ${event.data}`, 'error');
+            }
+        }
+
+        function updateUI(data) {
+            const sourceText = data.source === 'physical' ? '(Nut vat ly)' : (data.source === 'web' ? '(Web)' : '');
+
+            currentBroadcastedAction = data.action;
+            if (data.action === 'location') {
+                 currentBroadcastedLocation = data.value;
+            } else {
+                 currentBroadcastedLocation = null;
+            }
+
+            clearAllActiveStates();
+
+            let statusMessage = `Action: ${data.action ? data.action.toUpperCase() : 'UNKNOWN'}`;
+            let statusClass = 'info';
+
+            if (data.action === 'luu_kho') {
+                setActiveButton(btnLuuKho);
+                statusMessage = `Che do: LUU KHO`;
+                statusClass = 'active';
+            } else if (data.action === 'xuat_kho') {
+                setActiveButton(btnXuatKho);
+                statusMessage = `Che do: XUAT KHO`;
+                statusClass = 'active';
+            } else if (data.action === 'location' && data.value) {
+                 setActiveLocation(data.value);
+                 statusMessage = `Vi tri: ${data.value}`;
+                 statusClass = 'active';
+            } else if (data.action === 'on') {
+                setActiveButton(btnOn);
+                 statusMessage = `Mode: ON`;
+                 statusClass = 'active';
+            } else if (data.action === 'off') {
+                 setActiveButton(btnOff);
+                 statusMessage = `Mode: OFF (Da dung)`;
+                 statusClass = 'idle';
+            } else if (data.action === 'reset') {
+                 setActiveButton(btnReset);
+                 statusMessage = `Mode: RESET`;
+                 statusClass = 'idle';
+                 clearAllActiveStates();
+            }
+            else if (data.error) {
+                 statusMessage = `Loi tu ESP32: ${data.error}`;
+                 updateStatusIndicator(statusMessage, 'error');
+                 return;
+             } else if (data.status) {
+                 statusMessage = `Trang thai: ${data.status}`;
+                 updateStatusIndicator(statusMessage, 'info');
+                 return;
+             }
+            else {
+                 console.log("Received unknown data from ESP32: ", data);
+                 statusMessage = `Unknown: ${data.action}`;
+                 updateStatusIndicator(statusMessage, 'info');
+                 return;
+             }
+
+            updateStatusIndicator(`${statusMessage} ${sourceText}`, statusClass);
+        }
+
+        function updateStatusIndicator(message, statusClass) {
+            if (statusIndicator) {
+                statusIndicator.textContent = `Trang thai: ${message}`;
+                statusIndicator.className = '';
+                statusIndicator.classList.add(statusClass);
+            }
+        }
+
+        function setActiveButton(activeButton) {
+            if (activeButton) {
+                activeButton.classList.add('active');
+            }
+        }
+
+        function setActiveLocation(locationValue) {
+            locationCells.forEach(cell => {
+                if (cell.dataset.value === locationValue) {
+                    cell.classList.add('active');
+                }
+            });
+        }
+
+        function clearAllActiveStates() {
+             if(btnOn) btnOn.classList.remove('active');
+             if(btnOff) btnOff.classList.remove('active');
+             if(btnReset) btnReset.classList.remove('active');
+             if(btnLuuKho) btnLuuKho.classList.remove('active');
+             if(btnXuatKho) btnXuatKho.classList.remove('active');
+             locationCells.forEach(cell => {
+                 cell.classList.remove('active');
+             });
+        }
+
+
+        function sendWsCommand(element) {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                console.log("WebSocket not open. Cannot send command.");
+                updateStatusIndicator('Not connected, cannot send command', 'error');
+                initWebSocket();
+                return;
+            }
+
+            const action = element.dataset.action;
+            let value = element.dataset.value;
+
+
+            console.log(`Web button clicked: Action=${action}, Value=${value}`);
+
+            const message = { action: action };
+            if (value !== undefined && value !== null) {
+                 message.value = value;
+            }
+            const jsonMessage = JSON.stringify(message);
+
+            websocket.send(jsonMessage);
+            console.log("Sent WS command: " + jsonMessage);
+        }
+    </script>
+</body>
+</html>
+)rawliteral";
+
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
+
+// Bien luu trang thai truoc do cua cac nut vat ly (KHONG CHONG RUNG)
+int lastButtonStateON = HIGH;
+int lastButtonStateOFF = HIGH;
+int lastButtonStateRESET = HIGH;
+
+void updateLCD(String line1, String line2 = "");
+void broadcastStatus(const char* action, String value = "", const char* source = SOURCE_ESP32);
+void sendSerialCommand(const char* command);
+void executeAction(const char* action, String value = "", const char* source = SOURCE_ESP32);
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+
+// Hàm kiểm tra nút vật lý không chống rung
+void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger);
+
+void setupPins();
+void setupLCD();
+void setupAP();
+void setupWebServer();
+
+void setup() {
+    Serial.begin(115200);
+    Serial.println("\n===================================");
+    Serial.println("     KHOI DONG HE THONG LUU KHO    ");
+    Serial.println("===================================");
+
+    setupLCD();
+    setupPins();
+
+    setupAP();
+
+    setupWebServer();
+
+    if (MDNS.begin("esp32-kho")) {
+        Serial.println("mDNS responder started");
+    } else {
+        Serial.println("Error setting up mDNS");
+    }
+
+    Serial.print("Access Point SSID: ");
+    Serial.println(AP_SSID);
+    Serial.print("Access Point Password: ");
+    Serial.println(AP_PASSWORD);
+    Serial.print("Web Server IP: ");
+    Serial.println(WiFi.softAPIP());
+    updateLCD("AP Mode OK!", "IP:" + WiFi.softAPIP().toString());
+}
+
+void loop() {
+    ws.cleanupClients();
+
+    // Kiem tra cac nut vat ly KHONG CHONG RUNG
+    checkPhysicalButtonWithoutDebounce(NUT_ON_VATLY_PIN, lastButtonStateON, ACTION_ON);
+    checkPhysicalButtonWithoutDebounce(NUT_OFF_VATLY_PIN, lastButtonStateOFF, ACTION_OFF);
+    checkPhysicalButtonWithoutDebounce(NUT_RESET_VATLY_PIN, lastButtonStateRESET, ACTION_RESET);
+}
+
+void updateLCD(String line1, String line2) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    String printLine1 = line1.substring(0, min((int)line1.length(), LCD_COLS));
+    lcd.print(printLine1);
+    if (line2 != "") {
+        lcd.setCursor(0, 1);
+        String printLine2 = line2.substring(0, min((int)line2.length(), LCD_COLS));
+        lcd.print(printLine2);
+    }
+}
+
+void broadcastStatus(const char* action, String value, const char* source) {
+    DynamicJsonDocument doc(256);
+    doc["action"] = action;
+    if (value != "") {
+        doc["value"] = value;
+    }
+    doc["source"] = source;
+
+    String jsonString;
+    serializeJson(doc, jsonString);
+
+    ws.textAll(jsonString);
+}
+
+void sendSerialCommand(const char* command) {
+    Serial.println(command);
+}
+
+void executeAction(const char* action, String value, const char* source) {
+    if (strcmp(action, ACTION_ON) == 0) {
+        digitalWrite(LUU_KHO_PIN, HIGH);
+        digitalWrite(XUAT_KHO_PIN, LOW);
+        updateLCD("Mode: ON", source);
+        sendSerialCommand("ON");
+    } else if (strcmp(action, ACTION_OFF) == 0) {
+        digitalWrite(LUU_KHO_PIN, LOW);
+        digitalWrite(XUAT_KHO_PIN, LOW);
+        updateLCD("Mode: OFF", source);
+        sendSerialCommand("OFF");
+    } else if (strcmp(action, ACTION_RESET) == 0) {
+        digitalWrite(LUU_KHO_PIN, LOW);
+        digitalWrite(XUAT_KHO_PIN, LOW);
+        updateLCD("Mode: RESET", source);
+        sendSerialCommand("RESET");
+    } else if (strcmp(action, ACTION_LUU_KHO) == 0) {
+        digitalWrite(LUU_KHO_PIN, HIGH);
+        digitalWrite(XUAT_KHO_PIN, LOW);
+        updateLCD("Che do: LUU KHO", source);
+        sendSerialCommand("L");
+    } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
+        digitalWrite(XUAT_KHO_PIN, HIGH);
+        digitalWrite(LUU_KHO_PIN, LOW);
+        updateLCD("Che do: XUAT KHO", source);
+        sendSerialCommand("X");
+    } else if (strcmp(action, ACTION_LOCATION) == 0) {
+        if (value != "") {
+            updateLCD("Vi tri:", value);
+            sendSerialCommand(value.c_str());
+        } else {
+            updateLCD("Loi:", "Thieu V.tri");
+        }
+    } else {
+        updateLCD("Action khong ro", action);
+    }
+
+    broadcastStatus(action, value, source);
+}
+
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+                          void *arg, uint8_t *data, size_t len)
+{
+    switch (type) {
+        case WS_EVT_CONNECT:
+            Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            break;
+        case WS_EVT_DISCONNECT:
+            Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            break;
+        case WS_EVT_DATA: {
+            AwsFrameInfo *info = (AwsFrameInfo*)arg;
+            if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+                data[len] = 0;
+                String jsonStr = (char*)data;
+
+                DynamicJsonDocument doc(256);
+                DeserializationError error = deserializeJson(doc, jsonStr);
+
+                if (error) {
+                    Serial.print("Loi phan tich JSON: "); Serial.println(error.c_str());
+                    updateLCD("Loi JSON!", error.c_str());
+                    DynamicJsonDocument errorDoc(64);
+                    errorDoc["error"] = "Invalid JSON";
+                    String errorJson;
+                    serializeJson(errorDoc, errorJson);
+                    client->text(errorJson);
+                    return;
+                }
+
+                const char* action = doc["action"] | "unknown";
+                String value = doc["value"].as<String>();
+
+                executeAction(action, value, SOURCE_WEB);
+            }
+            break;
+        }
+        case WS_EVT_PONG:
+            break;
+        case WS_EVT_ERROR:
+            Serial.printf("WebSocket client #%u error(%u): %s\n", client->id(), *((uint16_t*)arg), (char*)data);
+            break;
+    }
+}
+
+// Hàm kiểm tra nút vật lý KHÔNG chống rung
+void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger) {
+    int reading = digitalRead(buttonPin);
+
+    // Chỉ kiểm tra sự thay đổi trạng thái từ HIGH sang LOW (khi nút được nhấn)
+    if (reading != lastButtonState && reading == LOW) {
+        lastButtonState = reading; // Cập nhật trạng thái
+
+        Serial.printf("Nut vat ly (pin %d) nhan! Kich hoat action: %s (KHONG CHONG RUNG)\n", buttonPin, actionToTrigger);
+        executeAction(actionToTrigger, "", SOURCE_PHYSICAL);
+    } else if (reading != lastButtonState && reading == HIGH) {
+        // Cập nhật trạng thái khi nút nhả ra
+        lastButtonState = reading;
+        // Serial.printf("Nut vat ly (pin %d) nha.\n", buttonPin); // Có thể bật lại để debug khi nhả nút
+    }
+}
+
+void setupPins() {
+    pinMode(LUU_KHO_PIN, OUTPUT);
+    pinMode(XUAT_KHO_PIN, OUTPUT);
+    digitalWrite(LUU_KHO_PIN, LOW);
+    digitalWrite(XUAT_KHO_PIN, LOW);
+
+    // Cau hinh chan nut bam vat ly.
+    // SU DUNG INPUT_PULLUP de kich hoat dien tro keo len noi bo
+    // Chi can dau nut tu chan GPIO xuong GND.
+    pinMode(NUT_ON_VATLY_PIN, INPUT_PULLUP);
+    pinMode(NUT_OFF_VATLY_PIN, INPUT_PULLUP);
+    pinMode(NUT_RESET_VATLY_PIN, INPUT_PULLUP);
+
+    // NEU BAN DAU DIEN TRO KEO LEN NGOAI, HAY THAY THE INPUT_PULLUP BANG INPUT:
+    // pinMode(NUT_ON_VATLY_PIN, INPUT); // Va dam bao da dau dien tro pull-up tu chan nay len 3.3V
+    // pinMode(NUT_OFF_VATLY_PIN, INPUT); // Va dam bao da dau dien tro pull-up tu chan nay len 3.3V
+    // pinMode(NUT_RESET_VATLY_PIN, INPUT); // Va dam bao da dau dien tro pull-up tu chan nay len 3.3V
+
+
+    Serial.println("GPIO pins configured.");
+
+    // Doc trang thai ban dau cua nut
+    lastButtonStateON     = digitalRead(NUT_ON_VATLY_PIN);
+    lastButtonStateOFF    = digitalRead(NUT_OFF_VATLY_PIN);
+    lastButtonStateRESET  = digitalRead(NUT_RESET_VATLY_PIN);
+}
+
+void setupLCD() {
+    lcd.init();
+    lcd.backlight();
+    updateLCD("Khoi dong...", "Xin cho");
+    Serial.println("LCD initialized.");
+}
+
+void setupAP() {
+    Serial.println("Setting up WiFi Access Point...");
+    updateLCD("Tao AP Wifi...", AP_SSID);
+
+    WiFi.mode(WIFI_AP);
+
+    if (WiFi.softAP(AP_SSID, AP_PASSWORD)) {
+        Serial.println("WiFi AP started successfully");
+        Serial.print("AP IP address: ");
+        Serial.println(WiFi.softAPIP());
+        updateLCD("AP OK!", "IP:" + WiFi.softAPIP().toString());
+    } else {
+        Serial.println("Error setting up WiFi AP");
+        updateLCD("Loi tao AP!", "Khoi dong lai");
+        delay(2000);
+        ESP.restart();
+    }
+}
+
+void setupWebServer() {
+    ws.onEvent(handleWebSocketEvent);
+    server.addHandler(&ws);
+    Serial.println("WebSocket server configured.");
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send_P(200, "text/html", trangHtml);
+    });
+
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        request->send(404, "text/plain", "404 Not Found");
+    });
+
+    server.begin();
+    Serial.println("HTTP server started.");
+}
