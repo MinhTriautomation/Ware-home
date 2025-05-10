@@ -9,7 +9,7 @@ const int chanDirZ = 7; const int chanPulZ = 6;
 const int sensor1 = 8; const int sensor2 = 9;
 const int servoPin = 10;
 const int in3 = 11; const int in4 = 12;
-const int ct1 = A5; const int ct2 = A4;
+const int ctX = A5; const int ctY = A4;
 const int relayPin = 13;
 
 String incomingMessage = "";
@@ -25,7 +25,7 @@ bool checkC2 = false;
 
 Servo myServo;
 const int soBuocTren1Vong = 3200;
-const int tocDoQuayXY = 500;
+const int tocDoQuayXY = 30;
 const int tocDoQuayZ = 1000;
 
 bool checkX = false;
@@ -40,8 +40,8 @@ bool daChamCongTac = false;
 bool daChamCongTacY = false;
 
 void setup() {
-    pinMode(ct1, INPUT_PULLUP);
-    pinMode(ct2, INPUT_PULLUP);
+    pinMode(ctX, INPUT_PULLUP);
+    pinMode(ctY, INPUT_PULLUP);
 
     pinMode(sensor1, INPUT);
     pinMode(sensor2, INPUT);
@@ -69,9 +69,10 @@ void setup() {
 }
 
 void loop() {
-
+  home();
+  dichuyenvaoB2();
 }
-
+//Phai sang trai
 void quayThuanX(long soBuocMuonQuay) {
     digitalWrite(chanDirX, HIGH);
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -79,7 +80,7 @@ void quayThuanX(long soBuocMuonQuay) {
         digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
     }
 }
-
+//Trai sang phai
 void quayNghichX(long soBuocMuonQuay) {
     digitalWrite(chanDirX, LOW);
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -87,7 +88,7 @@ void quayNghichX(long soBuocMuonQuay) {
         digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
     }
 }
-
+//Duoi len tren
 void quayThuanY(long soBuocMuonQuay) {
     digitalWrite(chanDirY, HIGH);
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -95,7 +96,7 @@ void quayThuanY(long soBuocMuonQuay) {
         digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
     }
 }
-
+//Tren xuong duoi
 void quayNghichY(long soBuocMuonQuay) {
     digitalWrite(chanDirY, LOW);
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -103,7 +104,7 @@ void quayNghichY(long soBuocMuonQuay) {
         digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
     }
 }
-
+//Trong ra ngoai
 void quayThuanZ(long soBuocMuonQuay) {
     digitalWrite(chanDirZ, LOW);  // Z quay thuận là LOW (theo bạn khai báo)
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -111,7 +112,7 @@ void quayThuanZ(long soBuocMuonQuay) {
         digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
     }
 }
-
+//Ngoai vao trong
 void quayNghichZ(long soBuocMuonQuay) {
     digitalWrite(chanDirZ, HIGH);
     for (long i = 0; i < soBuocMuonQuay; i++) {
@@ -119,7 +120,7 @@ void quayNghichZ(long soBuocMuonQuay) {
         digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
     }
 }
-
+//Dung X Y Z
 void dungX() {
     digitalWrite(chanPulX, LOW);
 }
@@ -131,20 +132,22 @@ void dungY() {
 void dungZ() {
     digitalWrite(chanPulZ, LOW);
 }
-//ok
+//Btai thuan ngoai vao trong
 void bangTaiThuan() {
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
 }
+//Trong ra ngoai
 void bangTaiNghich() {
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
 }
+//Dung btai
 void bangTaiDung() {
     digitalWrite(in3, HIGH);
     digitalWrite(in4, HIGH);
 }
-
+//Gat san pham loi
 void gatVat() {
     digitalWrite(relayPin, HIGH);
     delay(500);
@@ -162,4 +165,202 @@ void gatVat() {
     delay(3200);
     digitalWrite(relayPin, LOW);
 }
-//ok
+void quayThuanX_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirX, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayNghichX_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirX, LOW);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanY_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirY, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayNghichY_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirY, LOW);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanZ_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirZ, LOW);  // Z quay thuận là LOW
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+
+void quayNghichZ_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirZ, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+bool daChayA1 = false;
+void dichuyenvaoA1() {
+  if (!daChayA1){
+    quayNghichX_Vong(20.5*5);   // Trục X quay thuận 13.5 vòng
+    delay(200);
+    quayThuanY_Vong(5*5);    // 
+    delay(200);
+    quayThuanZ_Vong(1.6);      // Trục Z quay thuận 2 vòng
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3*5);     // Trục Y quay nghịch 3 vòng
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);     // Trục Z quay nghịch 2 vòng
+    delay(200);
+
+    daChayA1 = true;
+  }
+}
+bool daChayA2 = false;
+void dichuyenvaoA2() {
+  if (!daChayA2) {
+    quayNghichX_Vong(40 * 5);
+    delay(200);
+    quayThuanY_Vong(5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daChayA2 = true;
+  }
+}
+
+bool daChayB1 = false;
+void dichuyenvaoB1() {
+  if (!daChayB1) {
+    quayNghichX_Vong(20.5 * 5);
+    delay(200);
+    quayThuanY_Vong(15.5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daChayB1 = true;
+  }
+}
+
+bool daChayB2 = false;
+void dichuyenvaoB2() {
+  if (!daChayB2) {
+    quayNghichX_Vong(40 * 5);
+    delay(200);
+    quayThuanY_Vong(15.5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daChayB2 = true;
+  }
+}
+
+bool daChayC1 = false;
+void dichuyenvaoC1() {
+  if (!daChayC1) {
+    quayNghichX_Vong(20.5 * 5);
+    delay(200);
+    quayThuanY_Vong(25.5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daChayC1 = true;
+  }
+}
+
+bool daChayC2 = false;
+void dichuyenvaoC2() {
+  if (!daChayC2) {
+    quayNghichX_Vong(40 * 5);
+    delay(200);
+    quayThuanY_Vong(25.5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayNghichY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daChayC2 = true;
+  }
+}
+
+bool homeCompleted = false;
+void home(){
+  if (!homeCompleted) {
+          // Quay thuận trục X đến khi công tắc ctX kích hoạt
+          while (digitalRead(ctX) == HIGH) {
+              digitalWrite(chanDirX, HIGH);  // Quay thuận X
+              digitalWrite(chanPulX, HIGH);
+              delayMicroseconds(20);
+              digitalWrite(chanPulX, LOW);
+              delayMicroseconds(20);
+          }
+
+          // Sau khi công tắc ctX bị kích hoạt, quay nghịch X 5 vòng
+          quayNghichX_Vong(5);
+
+          // Quay nghịch trục Y đến khi công tắc ctY kích hoạt
+          while (digitalRead(ctY) == HIGH) {
+              digitalWrite(chanDirY, LOW);  // Quay nghịch Y
+              digitalWrite(chanPulY, HIGH);
+              delayMicroseconds(30);
+              digitalWrite(chanPulY, LOW);
+              delayMicroseconds(30);
+          }
+
+          // Sau khi công tắc ctY bị kích hoạt, quay thuận Y 15 vòng
+          quayThuanY_Vong(8);
+
+          // Đánh dấu hàm đã thực hiện xong
+          homeCompleted = true;
+      }
+  }
+//oke
