@@ -70,7 +70,10 @@ void setup() {
 
 void loop() {
   home();
-  dichuyenvaoB2();
+  dichuyenvaoA1();
+  bool homeCompleted = false;
+  home();
+  dichuyenvaoA2();
 }
 //Phai sang trai
 void quayThuanX(long soBuocMuonQuay) {
@@ -221,19 +224,18 @@ void quayNghichZ_Vong(float soVong) {
 bool daChayA1 = false;
 void dichuyenvaoA1() {
   if (!daChayA1){
-    quayNghichX_Vong(20.5*5);   // Trục X quay thuận 13.5 vòng
+    quayNghichX_Vong(20.5 * 5);   // Trục X quay thuận 13.5 vòng
     delay(200);
-    quayThuanY_Vong(5*5);    // 
+    quayThuanY_Vong(5 * 5);    // 
     delay(200);
     quayThuanZ_Vong(1.6);      // Trục Z quay thuận 2 vòng
     delay(200);
     dungZ();
-    quayNghichY_Vong(3*5);     // Trục Y quay nghịch 3 vòng
+    quayNghichY_Vong(3 * 5);     // Trục Y quay nghịch 3 vòng
     dungY();
     delay(200);
     quayNghichZ_Vong(1.6);     // Trục Z quay nghịch 2 vòng
     delay(200);
-
     daChayA1 = true;
   }
 }
@@ -255,7 +257,6 @@ void dichuyenvaoA2() {
     daChayA2 = true;
   }
 }
-
 bool daChayB1 = false;
 void dichuyenvaoB1() {
   if (!daChayB1) {
@@ -332,6 +333,119 @@ void dichuyenvaoC2() {
   }
 }
 
+bool daLayA1 = false;
+void dichuyenraA1() {
+  if (!daLayA1) {
+    quayNghichX_Vong(20.5 * 5);
+    delay(200);
+    quayThuanY_Vong(5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayA1 = true;
+  }
+}
+
+bool daLayA2 = false;
+void dichuyenraA2() {
+  if (!daLayA2) {
+    quayNghichX_Vong(25.5 * 5);
+    delay(200);
+    quayThuanY_Vong(5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayA2 = true;
+  }
+}
+
+bool daLayB1 = false;
+void dichuyenraB1() {
+  if (!daLayB1) {
+    quayNghichX_Vong(30.5 * 5);
+    delay(200);
+    quayThuanY_Vong(5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayB1 = true;
+  }
+}
+
+bool daLayB2 = false;
+void dichuyenraB2() {
+  if (!daLayB2) {
+    quayNghichX_Vong(35.5 * 5);
+    delay(200);
+    quayThuanY_Vong(5 * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayB2 = true;
+  }
+}
+
+bool daLayC1 = false;
+void dichuyenraC1() {
+  if (!daLayC1) {
+    quayNghichX_Vong(40 * 5);
+    delay(200);
+    quayThuanY_Vong((25.5 - 3) * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayC1 = true;
+  }
+}
+bool daLayC2 = false;
+void dichuyenraC2() {
+  if (!daLayC2) {
+    quayNghichX_Vong(40 * 5);
+    delay(200);
+    quayThuanY_Vong((25.5 - 3) * 5);
+    delay(200);
+    quayThuanZ_Vong(1.6);
+    delay(200);
+    dungZ();
+    quayThuanY_Vong(3 * 5);
+    dungY();
+    delay(200);
+    quayNghichZ_Vong(1.6);
+    delay(200);
+    daLayC2 = true;
+  }
+}
+
 bool homeCompleted = false;
 void home(){
   if (!homeCompleted) {
@@ -362,5 +476,5 @@ void home(){
           // Đánh dấu hàm đã thực hiện xong
           homeCompleted = true;
       }
+
   }
-//oke
