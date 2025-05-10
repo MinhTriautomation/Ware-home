@@ -1,162 +1,165 @@
 #include <Servo.h>
+#include <Arduino.h>
+
+const long BAUD_RATE = 115200;
+
+const int chanDirX = 2; const int chanPulX = 3;
+const int chanDirY = 4; const int chanPulY = 5;
+const int chanDirZ = 7; const int chanPulZ = 6;
+const int sensor1 = 8; const int sensor2 = 9;
+const int servoPin = 10;
+const int in3 = 11; const int in4 = 12;
+const int ct1 = A5; const int ct2 = A4;
+const int relayPin = 13;
+
+String incomingMessage = "";
+String tinHieuESP = "";
+String tinHieuPython = "";
+
+bool checkA1 = false;
+bool checkA2 = false;
+bool checkB1 = false;
+bool checkB2 = false;
+bool checkC1 = false;
+bool checkC2 = false;
 
 Servo myServo;
-const int chanDirX = 2;const int chanPulX = 3;
-const int chanDirY = 4;const int chanPulY = 5;
-const int chanDirZ = 7;const int chanPulZ = 6;
-const int sensor1 = 8;const int sensor2 = 9;
-const int servo = 10;
-const int in3 = 11;const int in4 = 12;
-const int ct1 = A5;const int ct2 = A4;
+const int soBuocTren1Vong = 3200;
+const int tocDoQuayXY = 500;
+const int tocDoQuayZ = 1000;
 
-//Truc X
-void quayThuanX(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirX, HIGH);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulX, HIGH);
-    delayMicroseconds(1);
+bool checkX = false;
+bool checkY = false;
+bool checkZ = false;
+bool checkBangTai = false;
+
+bool dangQuayX = true;
+bool dangQuayY = true;
+
+bool daChamCongTac = false;
+bool daChamCongTacY = false;
+
+void setup() {
+    pinMode(ct1, INPUT_PULLUP);
+    pinMode(ct2, INPUT_PULLUP);
+
+    pinMode(sensor1, INPUT);
+    pinMode(sensor2, INPUT);
+    digitalWrite(sensor1, LOW);
+    digitalWrite(sensor2, LOW);
+
+    pinMode(chanDirX, OUTPUT); pinMode(chanPulX, OUTPUT);
+    pinMode(chanDirY, OUTPUT); pinMode(chanPulY, OUTPUT);
+    pinMode(chanDirZ, OUTPUT); pinMode(chanPulZ, OUTPUT);
     digitalWrite(chanPulX, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void quayNghichX(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirX, LOW);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulX, HIGH);
-    delayMicroseconds(1);
-    digitalWrite(chanPulX, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void dungX() {
-  digitalWrite(chanPulX, LOW);
-}
-//Trục Y
-void quayThuanY(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirY, HIGH);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulY, HIGH);
-    delayMicroseconds(1);
     digitalWrite(chanPulY, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void quayNghichY(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirY, LOW);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulY, HIGH);
-    delayMicroseconds(1);
-    digitalWrite(chanPulY, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void dungY() {
-  digitalWrite(chanPulY, LOW);
-}
-//Trục Z
-void quayThuanZ(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirZ, HIGH);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulZ, HIGH);
-    delayMicroseconds(1);
     digitalWrite(chanPulZ, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void quayNghichZ(int steps, int pulseDelayUs) {
-  digitalWrite(chanDirZ, LOW);
-  delayMicroseconds(1);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(chanPulZ, HIGH);
-    delayMicroseconds(1);
-    digitalWrite(chanPulZ, LOW);
-    delayMicroseconds(pulseDelayUs);
-  }
-}
-void dungZ() {
-  digitalWrite(chanPulZ, LOW);
-}
-//Bang tai
-void bangTaiThuan() {
-  digitalWrite(in3, HIGH);
-  digitalWrite(in4, LOW);
+
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
+    bangTaiDung();
+
+    pinMode(relayPin, OUTPUT);
+    digitalWrite(relayPin, LOW);
+
+    myServo.attach(servoPin);
+    myServo.write(0);
+
+    Serial.begin(BAUD_RATE);
 }
 
-void bangTaiNghich() {
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, HIGH);
-}
-
-void bangTaiDung() {
-  digitalWrite(in3, LOW);
-  digitalWrite(in4, LOW);
-}
-
-//Set up
-void setup(){
-  pinMode(ct1, INPUT_PULLUP);//1 chân còn lại kéo xuống đất
-  pinMode(ct2, INPUT_PULLUP);
-
-  pinMode(sensor1, INPUT);
-  pinMode(sensor2, INPUT);
-  
-  pinMode(chanDirX, OUTPUT);
-  pinMode(chanPulX, OUTPUT);
-  pinMode(chanDirY, OUTPUT);
-  pinMode(chanPulY, OUTPUT);
-  pinMode(chanDirZ, OUTPUT);
-  pinMode(chanPulZ, OUTPUT);
-
-  digitalWrite(chanPulX, LOW);
-  digitalWrite(chanPulY, LOW);
-  digitalWrite(chanPulZ, LOW);
-
-  myServo.attach(10);
-
-  pinMode(in3, OUTPUT);
-  pinMode(in4, OUTPUT);
+void loop() {
 
 }
-//Loop
-void loop(){
-  int trang_thai_ct1 = digitalRead(ct1);
-  int trang_thai_ct2 = digitalRead(ct2);
 
-  int trang_thai_sensor1 = digitalRead(sensor1);
-  int trang_thai_sensor2 = digitalRead(sensor2);
-
-//Cam bien
-if (trang_thai_sensor2 == LOW) {
-  //
-  }  
-if (trang_thai_sensor1 == LOW) {
-  //
-  }
-//Servo
-  myServo.write(0);
-  delay(1000);
-
-  myServo.write(180);
-  delay(2000); // Dung 2 giay tai vi tri 180 do
-
-  myServo.write(0);
-  delay(1000); // Cho 1 giay truoc khi lap lai chu trinh
-
-//Set Home
-  if (trang_thai_ct1 == LOW) {
-    dungX();
-    delay(100);
-    quayNghichX(2,500);
+void quayThuanX(long soBuocMuonQuay) {
+    digitalWrite(chanDirX, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);   // HIGH đủ lâu cho TB6600
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
     }
-  if (trang_thai_ct2 == LOW) {
-    dungY();
-    delay(100);
-    quayNghichY(2,500);
-  }
-
 }
+
+void quayNghichX(long soBuocMuonQuay) {
+    digitalWrite(chanDirX, LOW);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanY(long soBuocMuonQuay) {
+    digitalWrite(chanDirY, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayNghichY(long soBuocMuonQuay) {
+    digitalWrite(chanDirY, LOW);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanZ(long soBuocMuonQuay) {
+    digitalWrite(chanDirZ, LOW);  // Z quay thuận là LOW (theo bạn khai báo)
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+
+void quayNghichZ(long soBuocMuonQuay) {
+    digitalWrite(chanDirZ, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+
+void dungX() {
+    digitalWrite(chanPulX, LOW);
+}
+
+void dungY() {
+    digitalWrite(chanPulY, LOW);
+}
+
+void dungZ() {
+    digitalWrite(chanPulZ, LOW);
+}
+//ok
+void bangTaiThuan() {
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+}
+void bangTaiNghich() {
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+}
+void bangTaiDung() {
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, HIGH);
+}
+
+void gatVat() {
+    digitalWrite(relayPin, HIGH);
+    delay(500);
+    myServo.write(0);
+    delay(1000);
+    for (int gocServo = 0; gocServo <= 180; gocServo += 1) {
+        myServo.write(gocServo);
+        delay(15);
+    }
+    delay(1000);
+    for (int gocServo = 180; gocServo >= 0; gocServo -= 1) {
+        myServo.write(gocServo);
+        delay(15);
+    }
+    delay(3200);
+    digitalWrite(relayPin, LOW);
+}
+//ok
