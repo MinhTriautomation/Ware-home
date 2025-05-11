@@ -1,7 +1,9 @@
 #include <Servo.h>
 #include <Arduino.h>
+#include <SoftwareSerial.h>
 
-const long BAUD_RATE = 115200;
+SoftwareSerial espSerial(A1, A2);
+const long BAUD_RATE = 9600;
 
 const int chanDirX = 2; const int chanPulX = 3;
 const int chanDirY = 4; const int chanPulY = 5;
@@ -12,34 +14,38 @@ const int in3 = 11; const int in4 = 12;
 const int ctX = A5; const int ctY = A4;
 const int relayPin = 13;
 
-String incomingMessage = "";
-String tinHieuESP = "";
-String tinHieuPython = "";
-
-bool checkA1 = false;
-bool checkA2 = false;
-bool checkB1 = false;
-bool checkB2 = false;
-bool checkC1 = false;
-bool checkC2 = false;
+String receivedData = "";
 
 Servo myServo;
 const int soBuocTren1Vong = 3200;
 const int tocDoQuayXY = 30;
 const int tocDoQuayZ = 1000;
 
-bool checkX = false;
-bool checkY = false;
-bool checkZ = false;
-bool checkBangTai = false;
+bool daVaoA1 = false;
+bool daVaoA2 = false;
+bool daVaoB1 = false;
+bool daVaoB2 = false;
+bool daVaoC1 = false;
+bool daVaoC2 = false;
 
-bool dangQuayX = true;
-bool dangQuayY = true;
+bool daRaA1 = false;
+bool daRaA2 = false;
+bool daRaB1 = false;
+bool daRaB2 = false;
+bool daRaC1 = false;
+bool daRaC2 = false;
 
-bool daChamCongTac = false;
-bool daChamCongTacY = false;
+bool nhacHangRa = false;
+bool traHangXong = false ;
+
+bool daVeHome = false;
+
+bool daChayBangTaiThuan = false;
+bool daChayBangTaiNghich = false;
+bool daChayBangTaiDung = false;
 
 void setup() {
+
     pinMode(ctX, INPUT_PULLUP);
     pinMode(ctY, INPUT_PULLUP);
 
@@ -57,7 +63,6 @@ void setup() {
 
     pinMode(in3, OUTPUT);
     pinMode(in4, OUTPUT);
-    bangTaiDung();
 
     pinMode(relayPin, OUTPUT);
     digitalWrite(relayPin, LOW);
@@ -65,15 +70,26 @@ void setup() {
     myServo.attach(servoPin);
     myServo.write(0);
 
-    Serial.begin(BAUD_RATE);
+  Serial.begin(BAUD_RATE);           // Serial monitor
+  espSerial.begin(BAUD_RATE);   // Giao tiếp với ESP32
+
+  Serial.println("Đang chờ tín hiệu từ ESP32...");
 }
 
+
 void loop() {
-  home();
-  dichuyenvaoA1();
-  bool homeCompleted = false;
-  home();
-  dichuyenvaoA2();
+  while (espSerial.available()) {
+    char ch = espSerial.read();
+    if (ch == '\n') {
+      receivedData.trim();
+      Serial.print("Nhận được từ ESP32: ");
+      Serial.println(receivedData);
+      handleReceivedCommand(receivedData);
+      receivedData = "";
+    } else {
+      receivedData += ch;
+    }
+  }
 }
 //Phai sang trai
 void quayThuanX(long soBuocMuonQuay) {
@@ -109,7 +125,7 @@ void quayNghichY(long soBuocMuonQuay) {
 }
 //Trong ra ngoai
 void quayThuanZ(long soBuocMuonQuay) {
-    digitalWrite(chanDirZ, LOW);  // Z quay thuận là LOW (theo bạn khai báo)
+    digitalWrite(chanDirZ, LOW);   // Z quay thuận là LOW (theo bạn khai báo)
     for (long i = 0; i < soBuocMuonQuay; i++) {
         digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
         digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
@@ -135,28 +151,40 @@ void dungY() {
 void dungZ() {
     digitalWrite(chanPulZ, LOW);
 }
-//Btai thuan ngoai vao trong
+// Băng tải thuận: từ ngoài vào trong
 void bangTaiThuan() {
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
+    if (!daChayBangTaiThuan) {
+        digitalWrite(in3, HIGH);
+        digitalWrite(in4, LOW);
+        daChayBangTaiThuan = true;
+    }
 }
-//Trong ra ngoai
+
+// Băng tải nghịch: từ trong ra ngoài
 void bangTaiNghich() {
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
+    if (!daChayBangTaiNghich) {
+        digitalWrite(in3, LOW);
+        digitalWrite(in4, HIGH);
+        daChayBangTaiNghich = true;
+    }
 }
-//Dung btai
+
+// Dừng băng tải
 void bangTaiDung() {
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, HIGH);
+    if (!daChayBangTaiDung) {
+        digitalWrite(in3, HIGH);
+        digitalWrite(in4, HIGH);
+        daChayBangTaiDung = true;
+    }
 }
-//Gat san pham loi
+bool gatXong = false;
 void gatVat() {
+  if(!gatXong){
     digitalWrite(relayPin, HIGH);
     delay(500);
     myServo.write(0);
     delay(1000);
-    for (int gocServo = 0; gocServo <= 180; gocServo += 1) {
+    for (int gocServo = 0; gocServo <= 160; gocServo += 1) {
         myServo.write(gocServo);
         delay(15);
     }
@@ -165,8 +193,11 @@ void gatVat() {
         myServo.write(gocServo);
         delay(15);
     }
-    delay(3200);
+    delay(1500);
     digitalWrite(relayPin, LOW);
+
+    gatXong = true;
+  }
 }
 void quayThuanX_Vong(float soVong) {
     long soBuoc = soVong * soBuocTren1Vong;
@@ -206,7 +237,7 @@ void quayNghichY_Vong(float soVong) {
 
 void quayThuanZ_Vong(float soVong) {
     long soBuoc = soVong * soBuocTren1Vong;
-    digitalWrite(chanDirZ, LOW);  // Z quay thuận là LOW
+    digitalWrite(chanDirZ, LOW);   // Z quay thuận là LOW
     for (long i = 0; i < soBuoc; i++) {
         digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
         digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
@@ -221,260 +252,311 @@ void quayNghichZ_Vong(float soVong) {
         digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
     }
 }
-bool daChayA1 = false;
+
 void dichuyenvaoA1() {
-  if (!daChayA1){
-    quayNghichX_Vong(20.5 * 5);   // Trục X quay thuận 13.5 vòng
-    delay(200);
-    quayThuanY_Vong(5 * 5);    // 
-    delay(200);
-    quayThuanZ_Vong(1.6);      // Trục Z quay thuận 2 vòng
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);     // Trục Y quay nghịch 3 vòng
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);     // Trục Z quay nghịch 2 vòng
-    delay(200);
-    daChayA1 = true;
-  }
+    if (!daVaoA1){
+        quayNghichX_Vong(20.5 * 5);   // Trục X quay thuận 13.5 vòng
+        delay(200);
+        quayThuanY_Vong(5 * 5);     //
+        delay(200);
+        quayNghichZ_Vong(1.3);       // Trục Z quay thuận 2 vòng
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);     // Trục Y quay nghịch 3 vòng
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);      // Trục Z quay nghịch 2 vòng
+        delay(200);
+        daVaoA1 = true;
+        daVeHome = true;
+    }
 }
-bool daChayA2 = false;
+
 void dichuyenvaoA2() {
-  if (!daChayA2) {
-    quayNghichX_Vong(40 * 5);
-    delay(200);
-    quayThuanY_Vong(5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daChayA2 = true;
-  }
+    if (!daVaoA2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoA2 = true;
+        daVeHome = true;
+    }
 }
-bool daChayB1 = false;
+
 void dichuyenvaoB1() {
-  if (!daChayB1) {
-    quayNghichX_Vong(20.5 * 5);
-    delay(200);
-    quayThuanY_Vong(15.5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daChayB1 = true;
-  }
+    if (!daVaoB1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(15.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoB1 = true;
+        daVeHome = true;
+    }
 }
 
-bool daChayB2 = false;
 void dichuyenvaoB2() {
-  if (!daChayB2) {
-    quayNghichX_Vong(40 * 5);
-    delay(200);
-    quayThuanY_Vong(15.5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daChayB2 = true;
-  }
+    if (!daVaoB2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(15.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoB2 = true;
+        daVeHome = true;
+    }
 }
 
-bool daChayC1 = false;
 void dichuyenvaoC1() {
-  if (!daChayC1) {
-    quayNghichX_Vong(20.5 * 5);
-    delay(200);
-    quayThuanY_Vong(25.5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daChayC1 = true;
-  }
+    if (!daVaoC1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(25.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoC1 = true;
+        daVeHome = true;
+    }
 }
-
-bool daChayC2 = false;
 void dichuyenvaoC2() {
-  if (!daChayC2) {
-    quayNghichX_Vong(40 * 5);
-    delay(200);
-    quayThuanY_Vong(25.5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayNghichY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daChayC2 = true;
-  }
+    if (!daVaoC2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(25.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoC2 = true;
+        daVeHome = true;
+    }
 }
 
-bool daLayA1 = false;
+
 void dichuyenraA1() {
-  if (!daLayA1) {
-    quayNghichX_Vong(20.5 * 5);
-    delay(200);
-    quayThuanY_Vong(5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayA1 = true;
-  }
+    if (!daRaA1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(3 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaA1 = true;
+        daVeHome = false;
+    }
 }
 
-bool daLayA2 = false;
 void dichuyenraA2() {
-  if (!daLayA2) {
-    quayNghichX_Vong(25.5 * 5);
-    delay(200);
-    quayThuanY_Vong(5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayA2 = true;
-  }
+    if (!daRaA2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(3 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaA2 = true;
+        daVeHome = false;
+    }
 }
-
-bool daLayB1 = false;
 void dichuyenraB1() {
-  if (!daLayB1) {
-    quayNghichX_Vong(30.5 * 5);
-    delay(200);
-    quayThuanY_Vong(5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayB1 = true;
-  }
+    if (!daRaB1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(12 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaB1 = true;
+        daVeHome = false;
+    }
 }
-
-bool daLayB2 = false;
 void dichuyenraB2() {
-  if (!daLayB2) {
-    quayNghichX_Vong(35.5 * 5);
-    delay(200);
-    quayThuanY_Vong(5 * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayB2 = true;
-  }
+    if (!daRaB2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(14 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaB2 = true;
+        daVeHome = false;
+    }
 }
 
-bool daLayC1 = false;
 void dichuyenraC1() {
-  if (!daLayC1) {
-    quayNghichX_Vong(40 * 5);
-    delay(200);
-    quayThuanY_Vong((25.5 - 3) * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayC1 = true;
-  }
+    if (!daRaC1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong((25.5 - 3) * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaC1 = true;
+        daVeHome = false;
+    }
 }
-bool daLayC2 = false;
 void dichuyenraC2() {
-  if (!daLayC2) {
-    quayNghichX_Vong(40 * 5);
-    delay(200);
-    quayThuanY_Vong((25.5 - 3) * 5);
-    delay(200);
-    quayThuanZ_Vong(1.6);
-    delay(200);
-    dungZ();
-    quayThuanY_Vong(3 * 5);
-    dungY();
-    delay(200);
-    quayNghichZ_Vong(1.6);
-    delay(200);
-    daLayC2 = true;
+    if (!daRaC2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong((25.5 - 3) * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaC2 = true;
+        daVeHome = false;
+    }
+}
+
+void home(){
+    if (!daVeHome) {
+            // Quay thuận trục X đến khi công tắc ctX kích hoạt
+            while (digitalRead(ctX) == HIGH) {
+                digitalWrite(chanDirX, HIGH);  // Quay thuận X
+                digitalWrite(chanPulX, HIGH);
+                delayMicroseconds(20);
+                digitalWrite(chanPulX, LOW);
+                delayMicroseconds(20);
+            }
+
+            // Sau khi công tắc ctX bị kích hoạt, quay nghịch X 5 vòng
+            quayNghichX_Vong(5);
+
+            // Quay nghịch trục Y đến khi công tắc ctY kích hoạt
+            while (digitalRead(ctY) == HIGH) {
+                digitalWrite(chanDirY, LOW);  // Quay nghịch Y
+                digitalWrite(chanPulY, HIGH);
+                delayMicroseconds(30);
+                digitalWrite(chanPulY, LOW);
+                delayMicroseconds(30);
+            }
+
+            // Sau khi công tắc ctY bị kích hoạt, quay thuận Y 15 vòng
+            quayThuanY_Vong(8);
+
+            // Đánh dấu hàm đã thực hiện xong
+            daVeHome = true;
+        }
+
+    }
+void nhacHang(){
+  if(!nhacHangRa){
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        quayNghichY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        nhacHangRa = true;
+        daVeHome = false;
+  }
+}
+void traHang(){
+  if(!traHangXong){
+      quayThuanY_Vong(2 * 5);
+      dungY();
+      delay(200);
+      quayThuanZ_Vong(1.3);
+      delay(200);
+      dungZ();
+      quayNghichY_Vong(2 * 5);
+      dungY();
+      delay(200);
+      quayNghichZ_Vong(1.3);
+      delay(200);
+      dungZ();
+      traHangXong = true;
+      daVeHome = false;
+  }
+}
+void handleReceivedCommand(String command) {
+  if (command == "A") {
+    Serial.println("Xử lý sản phẩm A");
+    // Thêm xử lý
+  } else if (command == "B") {
+    Serial.println("Xử lý sản phẩm B");
+  } else if (command == "C") {
+    Serial.println("Xử lý sản phẩm C");
+  } else if (command == "SAI") {
+    Serial.println("Dữ liệu sai");
+  } else {
+    Serial.print("Lệnh không hợp lệ: ");
+    Serial.println(command);
   }
 }
 
-bool homeCompleted = false;
-void home(){
-  if (!homeCompleted) {
-          // Quay thuận trục X đến khi công tắc ctX kích hoạt
-          while (digitalRead(ctX) == HIGH) {
-              digitalWrite(chanDirX, HIGH);  // Quay thuận X
-              digitalWrite(chanPulX, HIGH);
-              delayMicroseconds(20);
-              digitalWrite(chanPulX, LOW);
-              delayMicroseconds(20);
-          }
-
-          // Sau khi công tắc ctX bị kích hoạt, quay nghịch X 5 vòng
-          quayNghichX_Vong(5);
-
-          // Quay nghịch trục Y đến khi công tắc ctY kích hoạt
-          while (digitalRead(ctY) == HIGH) {
-              digitalWrite(chanDirY, LOW);  // Quay nghịch Y
-              digitalWrite(chanPulY, HIGH);
-              delayMicroseconds(30);
-              digitalWrite(chanPulY, LOW);
-              delayMicroseconds(30);
-          }
-
-          // Sau khi công tắc ctY bị kích hoạt, quay thuận Y 15 vòng
-          quayThuanY_Vong(8);
-
-          // Đánh dấu hàm đã thực hiện xong
-          homeCompleted = true;
-      }
-
-  }
