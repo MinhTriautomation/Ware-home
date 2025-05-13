@@ -11,46 +11,55 @@
 #include <ESPAsyncWebServer.h>
 #include <LiquidCrystal_I2C.h>
 #include <ArduinoJson.h>
-#include <HardwareSerial.h>
 #include <Arduino.h>
 
-const char *WIFI_SSID = "Minh Tri";
-const char *WIFI_PASSWORD = "88888888";
+// --- WiFi Access Point Configuration ---
+const char *AP_SSID = "ESP32_KHO_THONG_MINH";
+const char *AP_PASSWORD = ""; // Để trống nếu không cần mật khẩu
 
+// --- LCD Configuration ---
 const int LCD_ADDRESS = 0x27;
 const int LCD_COLS = 16;
 const int LCD_ROWS = 2;
 
-const int LUU_KHO_PIN = 12;
-const int XUAT_KHO_PIN = 13;
+// --- Output Pins (Connected to actuators/indicators) ---
+const int LUU_KHO_PIN = 12; // Ví dụ: Điều khiển relay/motor cho chế độ lưu kho
+const int XUAT_KHO_PIN = 13; // Ví dụ: Điều khiển relay/motor cho chế độ xuất kho
 
+// --- Input Pins (Physical Buttons) ---
+// Sử dụng INPUT_PULLUP nên nối nút bấm giữa chân GPIO và GND
 const int NUT_ON_VATLY_PIN    = 25;
 const int NUT_OFF_VATLY_PIN   = 26;
 const int NUT_RESET_VATLY_PIN = 27;
 
-const int SERIAL1_RX_PIN = 16;
-const int SERIAL1_TX_PIN = 17;
-
-const long DEBOUNCE_DELAY = 50;
-
+// --- Action Definitions ---
 const char* ACTION_LUU_KHO = "luu_kho";
 const char* ACTION_XUAT_KHO = "xuat_kho";
-const char* ACTION_LOCATION = "location";
-const char* ACTION_OFF      = "off";
-const char* ACTION_ON       = "on";
-const char* ACTION_RESET    = "reset";
+const char* ACTION_LOCATION = "location"; // Hành động chọn vị trí
+const char* ACTION_OFF      = "off";      // Hành động tắt hệ thống (logic)
+const char* ACTION_ON       = "on";       // Hành động bật hệ thống (logic)
+const char* ACTION_RESET    = "reset";    // Hành động reset logic/trạng thái
 
-const char* SOURCE_PHYSICAL = "physical";
-const char* SOURCE_WEB = "web";
-const char* SOURCE_ESP32 = "esp32";
+// --- Source Definitions (Origin of the command) ---
+const char* SOURCE_PHYSICAL = "physical"; // Từ nút bấm vật lý
+const char* SOURCE_WEB      = "web";      // Từ giao diện web
+const char* SOURCE_ESP32    = "esp32";    // Từ chính ESP32 (ví dụ: khởi động)
+const char* SOURCE_PYTHON   = "python";   // Từ script Python qua Serial
 
+// --- Serial Port Configuration ---
+#define SERIAL_BAUD_RATE 115200 // Tốc độ cho Serial (Monitor/Python)
+#define SERIAL2_BAUD_RATE 9600  // Tốc độ cho Serial2 (Arduino Uno)
+#define UNO_RX_PIN 16           // ESP32 RX2 connected to Uno TX
+#define UNO_TX_PIN 17           // ESP32 TX2 connected to Uno RX
+
+// --- HTML Page (Stored in PROGMEM) ---
 const char trangHtml[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Giao dien Nghien cuu Thiet ke</title>
+    <title>Giao dien Nghien Cuu Khoa Hoc</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Times New Roman', Times, serif; }
         body { background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
@@ -61,67 +70,37 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         .header h3 { font-size: 18px; color: #003087; margin-bottom: 5px; }
         .color-primary { color: #003087; }
         .main-content { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
-
         .control-panel { width: 100%; max-width: 450px; margin-bottom: 20px; border: 2px solid #003087; border-radius: 10px; background-color: #f0f8ff; padding: 10px; box-sizing: border-box; }
-
-        .clickable-item {
-             display: flex;
-             justify-content: center;
-             align-items: center;
-             border: 2px solid #003087;
-             color: #003087;
-             font-weight: bold;
-             text-align: center;
-             background-color: #f0f8ff;
-             border-radius: 5px;
-             cursor: pointer;
-             transition: background-color 0.3s, transform 0.1s;
-             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        .clickable-item { display: flex; justify-content: center; align-items: center; border: 2px solid #003087; color: #003087; font-weight: bold; text-align: center; background-color: #f0f8ff; border-radius: 5px; cursor: pointer; transition: background-color 0.3s, transform 0.1s, opacity 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05); }
+        .clickable-item:hover { background-color: #d0e7ff; }
+        .clickable-item:active { transform: scale(0.98); }
+        .clickable-item.active { background-color: #4682b4; color: white; }
+        /* CSS cho nút bị vô hiệu hóa */
+        .clickable-item.disabled-button,
+        .clickable-item[disabled] {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: #e0e0e0 !important; /* Ghi đè màu khi active */
+            color: #888 !important; /* Ghi đè màu chữ khi active */
+            pointer-events: none; /* Ngăn chặn sự kiện click nếu chỉ dùng class */
         }
-         .clickable-item:hover { background-color: #d0e7ff; }
-         .clickable-item:active { transform: scale(0.98); }
-         .clickable-item.active { background-color: #4682b4; color: white; }
-
-
-        .mode-button {
-            flex: 1;
-            padding: 12px 15px;
-            font-size: 16px;
+        .clickable-item.disabled-button:hover,
+        .clickable-item[disabled]:hover {
+            background-color: #e0e0e0 !important;
+        }
+         .clickable-item.disabled-button:active,
+        .clickable-item[disabled]:active {
+            transform: none !important;
         }
 
-        .button-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        .button-row:last-child {
-            margin-bottom: 0;
-        }
-
-
-        .location-cell {
-             width: 48%;
-             height: 70px;
-             font-size: 22px;
-             border: 1px solid #003087;
-             background-color: white;
-        }
-         .location-cell:hover { background-color: #d0e7ff; }
-         .location-cell:active { transform: scale(0.98); }
-         .location-cell.active { background-color: #4682b4; color: white; }
-
-
-        #status-indicator {
-            margin-top: 15px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: #eee;
-            font-size: 14px;
-            text-align: center;
-            color: #333;
-        }
+        .mode-button { flex: 1; padding: 12px 15px; font-size: 16px; }
+        .button-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+        .button-row:last-child { margin-bottom: 0; }
+        .location-cell { width: 48%; height: 70px; font-size: 22px; border: 1px solid #003087; background-color: white; }
+        .location-cell:hover:not(.disabled-button):not([disabled]) { background-color: #d0e7ff; }
+        .location-cell:active:not(.disabled-button):not([disabled]) { transform: scale(0.98); }
+        .location-cell.active { background-color: #4682b4; color: white; }
+        #status-indicator { margin-top: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; background-color: #eee; font-size: 14px; text-align: center; color: #333; }
         #status-indicator.connecting { color: #ff9800; border-color: #ff9800; }
         #status-indicator.connected { color: #4caf50; border-color: #4caf50; }
         #status-indicator.disconnected { color: #f44336; border-color: #f44336; }
@@ -129,66 +108,16 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         #status-indicator.active { color: #2196f3; border-color: #2196f3; font-weight: bold; }
         #status-indicator.idle { color: #607d8b; border-color: #607d8b; }
         #status-indicator.info { color: #009688; border-color: #009688; }
-
-
-        .text-content {
-            width: 100%;
-            max-width: 550px;
-            font-size: 16px;
-            color: #000;
-            line-height: 1.6;
-        }
-        .text-row {
-            display: flex;
-            flex-direction: row;
-            margin-bottom: 15px;
-            gap: 20px;
-            flex-wrap: wrap;
-            align-items: flex-start;
-        }
-        .text-row:last-child {
-            margin-bottom: 0;
-        }
-
-        .text-column {
-        }
-        .text-column.left {
-            font-weight: bold;
-            color: #003087;
-            flex-basis: 200px;
-            flex-shrink: 0;
-        }
-        .text-column.right {
-            color: #003087;
-            flex-grow: 1;
-        }
-        .text-column.right p {
-            margin-bottom: 3px;
-        }
-        .text-column.right p:last-child {
-            margin-bottom: 0;
-        }
-
-
-        @media (max-width: 992px) {
-             .main-content { flex-direction: column; align-items: center; gap: 20px; }
-             .control-panel, .text-content { max-width: 600px; width: 100%; }
-
-             .text-row { flex-direction: column; gap: 5px; align-items: center; text-align: center; }
-             .text-column.left, .text-column.right {
-                 flex-basis: auto; flex-shrink: 1; flex-grow: 0; width: 100%; text-align: center;
-             }
-              .text-column.left { margin-bottom: 5px; }
-              .text-column.right p { text-align: center; }
-
-        }
-        @media (max-width: 480px) {
-             .header h1 { font-size: 22px; }
-             .header h3 { font-size: 16px; }
-             .mode-button { font-size: 14px; padding: 10px 12px; }
-             .location-cell { font-size: 18px; height: 60px; }
-             .text-content { font-size: 14px; }
-        }
+        .text-content { width: 100%; max-width: 550px; font-size: 16px; color: #000; line-height: 1.6; }
+        .text-row { display: flex; flex-direction: row; margin-bottom: 15px; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+        .text-row:last-child { margin-bottom: 0; }
+        .text-column { }
+        .text-column.left { font-weight: bold; color: #003087; flex-basis: 200px; flex-shrink: 0; }
+        .text-column.right { color: #003087; flex-grow: 1; }
+        .text-column.right p { margin-bottom: 3px; }
+        .text-column.right p:last-child { margin-bottom: 0; }
+        @media (max-width: 992px) { .main-content { flex-direction: column; align-items: center; gap: 20px; } .control-panel, .text-content { max-width: 600px; width: 100%; } .text-row { flex-direction: column; gap: 5px; align-items: center; text-align: center; } .text-column.left, .text-column.right { flex-basis: auto; flex-shrink: 1; flex-grow: 0; width: 100%; text-align: center; } .text-column.left { margin-bottom: 5px; } .text-column.right p { text-align: center; } }
+        @media (max-width: 480px) { .header h1 { font-size: 22px; } .header h3 { font-size: 16px; } .mode-button { font-size: 14px; padding: 10px 12px; } .location-cell { font-size: 18px; height: 60px; } .text-content { font-size: 14px; } }
     </style>
 </head>
 <body>
@@ -200,33 +129,31 @@ const char trangHtml[] PROGMEM = R"rawliteral(
                 <h3>MÃ SỐ ĐỀ TÀI : DTNH.96/2025<h3>
             </div>
         </div>
-
         <div class="main-content">
             <div class="control-panel">
                 <div class="button-row">
-                   <div id="btn-on" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="on">ON</div>
-                   <div id="btn-off" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="off">OFF</div>
-                   <div id="btn-reset" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="reset">RESET</div>
+                    <div id="btn-on" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="on">ON</div>
+                    <div id="btn-off" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="off">OFF</div>
+                    <div id="btn-reset" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="reset">RESET</div>
                 </div>
-                 <div class="button-row">
-                   <div id="btn-luu-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="luu_kho">LƯU KHO</div>
-                   <div id="btn-xuat-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="xuat_kho">XUẤT KHO</div>
-                 </div>
                 <div class="button-row">
-                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
+                    <div id="btn-luu-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="luu_kho">LƯU KHO</div>
+                    <div id="btn-xuat-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="xuat_kho">XUẤT KHO</div>
+                </div>
+                <div class="button-row">
+                    <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C1">C1</div>
                 </div>
                 <div class="button-row">
-                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
+                    <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="B2">B2</div>
                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="B1">B1</div>
                 </div>
                 <div class="button-row">
-                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
+                    <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="A2">A2</div>
                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="A1">A1</div>
                 </div>
                 <div id="status-indicator">Trang thai: Dang cho...</div>
             </div>
-
             <div class="text-content">
                 <div class="text-row">
                     <div class="text-column left">
@@ -264,7 +191,6 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         const gateway = `ws://${window.location.hostname}/ws`;
         let websocket;
         const statusIndicator = document.getElementById('status-indicator');
-
         const btnOn = document.getElementById('btn-on');
         const btnOff = document.getElementById('btn-off');
         const btnReset = document.getElementById('btn-reset');
@@ -272,14 +198,31 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         const btnXuatKho = document.getElementById('btn-xuat-kho');
         const locationCells = document.querySelectorAll('.location-cell[data-action="location"]');
 
-        let currentBroadcastedAction = null;
-        let currentBroadcastedLocation = null;
+        // Định nghĩa các hằng số action
+        const ACTION_ON = "on";
+        const ACTION_OFF = "off";
+        const ACTION_RESET = "reset";
+        const ACTION_LUU_KHO = "luu_kho";
+        const ACTION_XUAT_KHO = "xuat_kho";
+        const ACTION_LOCATION = "location";
 
+        const sourceTextMap = {
+            'physical': '(Nut vat ly)',
+            'web': '(Web UI)',
+            'python': '(Python)',
+            'esp32': '(He thong)'
+        };
+
+        // Biến trạng thái client
+        let isSystemOn = false;
+        let currentOperationMode = null; // ACTION_LUU_KHO hoặc ACTION_XUAT_KHO
+        let currentSelectedLocation = null; // Ví dụ: "A1"
 
         window.addEventListener('load', onLoad);
 
         function onLoad() {
             initWebSocket();
+            updateInteractionStates(); // Đặt trạng thái ban đầu của các nút
         }
 
         function initWebSocket() {
@@ -295,11 +238,18 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         function onOpen(event) {
             console.log('WebSocket Opened');
             updateStatusIndicator('Connected', 'connected');
+            // Yêu cầu trạng thái hiện tại từ ESP32 khi kết nối thành công (tùy chọn)
+            // websocket.send(JSON.stringify({ action: "get_status" }));
         }
 
         function onClose(event) {
             console.log('WebSocket Closed');
             updateStatusIndicator('Disconnected. Attempting to reconnect...', 'disconnected');
+            isSystemOn = false; // Giả định hệ thống tắt khi mất kết nối
+            currentOperationMode = null;
+            currentSelectedLocation = null;
+            clearAllActiveStates();
+            updateInteractionStates();
             setTimeout(initWebSocket, 2000);
         }
 
@@ -320,98 +270,150 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         }
 
         function updateUI(data) {
-            const sourceText = data.source === 'physical' ? '(Nut vat ly)' : (data.source === 'web' ? '(Web)' : '');
+            const sourceText = sourceTextMap[data.source] || '(Khong ro)';
+            let statusMessage = '';
+            let statusClass = 'info';
 
-            currentBroadcastedAction = data.action;
-            if (data.action === 'location') {
-                 currentBroadcastedLocation = data.value;
-            } else {
-                 currentBroadcastedLocation = null;
+            // Cập nhật trạng thái client dựa trên phản hồi từ ESP32
+            // Giả định ESP32 trả về action đã thực hiện và có thể các trạng thái liên quan
+            const action = data.action;
+            const value = data.value;
+
+            if (action === ACTION_ON) {
+                isSystemOn = true;
+                // Khi ON, reset chế độ và vị trí trừ khi ESP32 cung cấp thông tin khác
+                currentOperationMode = data.currentMode || null;
+                currentSelectedLocation = data.currentLocation || null;
+            } else if (action === ACTION_OFF) {
+                isSystemOn = false;
+                currentOperationMode = null;
+                currentSelectedLocation = null;
+            } else if (action === ACTION_RESET) {
+                isSystemOn = false;
+                currentOperationMode = null;
+                currentSelectedLocation = null;
+            } else if (action === ACTION_LUU_KHO) {
+                if (isSystemOn) currentOperationMode = ACTION_LUU_KHO;
+                currentSelectedLocation = null; // Không chọn vị trí khi lưu kho
+            } else if (action === ACTION_XUAT_KHO) {
+                if (isSystemOn) currentOperationMode = ACTION_XUAT_KHO;
+                // Giữ nguyên currentSelectedLocation nếu có, hoặc ESP32 sẽ cập nhật
+            } else if (action === ACTION_LOCATION && value) {
+                if (isSystemOn && currentOperationMode === ACTION_XUAT_KHO) {
+                    currentSelectedLocation = value;
+                }
             }
+            // Trường hợp ESP32 gửi trạng thái đầy đủ
+            if (typeof data.isSystemOn !== 'undefined') isSystemOn = data.isSystemOn;
+            if (typeof data.currentOperationMode !== 'undefined') currentOperationMode = data.currentOperationMode;
+            if (typeof data.currentSelectedLocation !== 'undefined') currentSelectedLocation = data.currentSelectedLocation;
+
 
             clearAllActiveStates();
 
-            let statusMessage = `Action: ${data.action ? data.action.toUpperCase() : 'UNKNOWN'}`;
-
-            if (data.action === 'luu_kho') {
-                setActiveButton(btnLuuKho);
-                statusMessage = `Che do: LUU KHO`;
-            } else if (data.action === 'xuat_kho') {
-                setActiveButton(btnXuatKho);
-                statusMessage = `Che do: XUAT KHO`;
-            } else if (data.action === 'location' && data.value) {
-                 setActiveLocation(data.value);
-                 statusMessage = `Vi tri: ${data.value}`;
-            } else if (data.action === 'on') {
+            if (isSystemOn) {
                 setActiveButton(btnOn);
-                 statusMessage = `Mode: ON`;
-            } else if (data.action === 'off') {
-                 setActiveButton(btnOff);
-                 statusMessage = `Mode: OFF (Da dung)`;
-            } else if (data.action === 'reset') {
-                 setActiveButton(btnReset);
-                 statusMessage = `Mode: RESET`;
-                 clearAllActiveStates();
-            }
-            else if (data.error) {
-                 statusMessage = `Loi tu ESP32: ${data.error}`;
-                 updateStatusIndicator(statusMessage, 'error');
-                 return;
-            } else if (data.status) {
-                 statusMessage = `Trang thai: ${data.status}`;
-                 updateStatusIndicator(statusMessage, 'info');
-                 return;
-             }
-             else {
-                 console.log("Received unknown data from ESP32: ", data);
-                 statusMessage = `Unknown: ${data.action}`;
-                 updateStatusIndicator(statusMessage, 'info');
-                 return;
-             }
+                statusMessage = `Mode: ON`; statusClass = 'active';
 
-            let statusClass = 'info';
-            if (data.action === 'luu_kho' || data.action === 'xuat_kho' || data.action === 'location' || data.action === 'on') {
-                 statusClass = 'active';
-            } else if (data.action === 'off' || data.action === 'reset') {
-                 statusClass = 'idle';
+                if (currentOperationMode === ACTION_LUU_KHO) {
+                    setActiveButton(btnLuuKho);
+                    statusMessage = `Che do: LUU KHO`;
+                } else if (currentOperationMode === ACTION_XUAT_KHO) {
+                    setActiveButton(btnXuatKho);
+                    statusMessage = `Che do: XUAT KHO`;
+                    if (currentSelectedLocation) {
+                        setActiveLocation(currentSelectedLocation);
+                        statusMessage += ` - Vi tri: ${currentSelectedLocation}`;
+                    }
+                } else { // Chỉ ON, chưa chọn LƯU hay XUẤT
+                    statusMessage = `He thong ON - Chon che do`;
+                }
+            } else { // Hệ thống OFF
+                // Chỉ nút OFF sáng nếu action cuối cùng là OFF, nếu không thì không nút nào sáng (trạng thái reset)
+                if (action === ACTION_OFF) {
+                     setActiveButton(btnOff);
+                     statusMessage = `Mode: OFF (Da dung)`; statusClass = 'idle';
+                } else if (action === ACTION_RESET) {
+                    // Nút Reset không cần duy trì trạng thái active lâu
+                    statusMessage = `Mode: RESET`; statusClass = 'idle';
+                }
+                 else { // Trạng thái không xác định hoặc vừa reset
+                    statusMessage = `He thong TAT`; statusClass = 'idle';
+                }
+            }
+
+            if (data.error) {
+                statusMessage = `Loi tu ESP32: ${data.error}`; statusClass = 'error';
+            } else if (data.status && !statusMessage) { // Chỉ hiển thị data.status nếu chưa có message cụ thể
+                statusMessage = `Trang thai: ${data.status}`; statusClass = 'info';
             }
 
             updateStatusIndicator(`${statusMessage} ${sourceText}`, statusClass);
+            updateInteractionStates();
         }
 
         function updateStatusIndicator(message, statusClass) {
             if (statusIndicator) {
                 statusIndicator.textContent = `Trang thai: ${message}`;
-                statusIndicator.className = '';
+                statusIndicator.className = ''; // Reset classes
                 statusIndicator.classList.add(statusClass);
             }
         }
 
         function setActiveButton(activeButton) {
-            if (activeButton) {
-                activeButton.classList.add('active');
-            }
+            if (activeButton) activeButton.classList.add('active');
         }
 
         function setActiveLocation(locationValue) {
             locationCells.forEach(cell => {
-                if (cell.dataset.value === locationValue) {
-                    cell.classList.add('active');
-                }
+                if (cell.dataset.value === locationValue) cell.classList.add('active');
             });
         }
 
         function clearAllActiveStates() {
-             if(btnOn) btnOn.classList.remove('active');
-             if(btnOff) btnOff.classList.remove('active');
-             if(btnReset) btnReset.classList.remove('active');
-             if(btnLuuKho) btnLuuKho.classList.remove('active');
-             if(btnXuatKho) btnXuatKho.classList.remove('active');
-             locationCells.forEach(cell => {
-                 cell.classList.remove('active');
-             });
+            [btnOn, btnOff, btnReset, btnLuuKho, btnXuatKho].forEach(btn => btn?.classList.remove('active'));
+            locationCells.forEach(cell => cell.classList.remove('active'));
         }
 
+        function updateInteractionStates() {
+            // Nút ON, OFF, RESET luôn có thể tương tác trừ khi có logic đặc biệt
+            btnOn.disabled = false;
+            btnOff.disabled = false;
+            btnReset.disabled = false;
+
+            if (isSystemOn) {
+                btnOn.disabled = true; // Không cho nhấn ON nữa nếu đã ON
+                btnOff.disabled = false;
+                btnLuuKho.disabled = false;
+                btnXuatKho.disabled = false;
+
+                if (currentOperationMode === ACTION_LUU_KHO) {
+                    locationCells.forEach(cell => cell.disabled = true);
+                    // btnXuatKho vẫn enabled để có thể chuyển chế độ
+                } else if (currentOperationMode === ACTION_XUAT_KHO) {
+                    locationCells.forEach(cell => cell.disabled = false);
+                    // btnLuuKho vẫn enabled
+                } else { // Mới chỉ ON, chưa chọn chế độ
+                    locationCells.forEach(cell => cell.disabled = true);
+                }
+            } else { // Hệ thống đang OFF
+                btnOn.disabled = false;
+                btnOff.disabled = true; // Không cho nhấn OFF nữa nếu đã OFF
+                btnLuuKho.disabled = true;
+                btnXuatKho.disabled = true;
+                locationCells.forEach(cell => cell.disabled = true);
+            }
+
+            // Áp dụng class 'disabled-button' cho CSS (hoặc chỉ dựa vào thuộc tính [disabled])
+             [btnOn, btnOff, btnLuuKho, btnXuatKho].forEach(btn => {
+                if (btn.disabled) btn.classList.add('disabled-button');
+                else btn.classList.remove('disabled-button');
+            });
+            locationCells.forEach(cell => {
+                if (cell.disabled) cell.classList.add('disabled-button');
+                else cell.classList.remove('disabled-button');
+            });
+        }
 
         function sendWsCommand(element) {
             if (!websocket || websocket.readyState !== WebSocket.OPEN) {
@@ -422,86 +424,152 @@ const char trangHtml[] PROGMEM = R"rawliteral(
             }
 
             const action = element.dataset.action;
-            let value = element.dataset.value;
+            let value = element.dataset.value; // Có thể là undefined
 
-
-            console.log(`Web button clicked: Action=${action}, Value=${value}`);
-
-            const message = { action: action };
-            if (value !== undefined && value !== null) {
-                 message.value = value;
+            // Kiểm tra logic phía client trước khi gửi (một số ràng buộc cơ bản)
+            if (element.disabled) {
+                console.warn(`Button ${action} is disabled. Command not sent.`);
+                updateStatusIndicator(`Nut ${action.toUpperCase()} dang bi khoa.`, 'error');
+                return;
             }
-            const jsonMessage = JSON.stringify(message);
 
+            if (action === ACTION_LOCATION) {
+                if (!isSystemOn || currentOperationMode !== ACTION_XUAT_KHO) {
+                    updateStatusIndicator('Phai o che do XUAT KHO de chon vi tri.', 'error');
+                    return;
+                }
+            }
+
+            const message = { action: action, source: 'web' };
+            if (value !== undefined) message.value = value; // Chỉ thêm value nếu nó tồn tại
+
+            const jsonMessage = JSON.stringify(message);
             websocket.send(jsonMessage);
             console.log("Sent WS command: " + jsonMessage);
+            updateStatusIndicator(`Da gui: ${action.toUpperCase()}` + (value ? ` (${value})` : ''), 'info');
         }
     </script>
 </body>
 </html>
 )rawliteral";
 
+// --- Global Objects ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
-HardwareSerial SerialPort(1);
 
-unsigned long lastDebounceTimeON = 0;
-unsigned long lastDebounceTimeOFF = 0;
-unsigned long lastDebounceTimeRESET = 0;
+// --- Global Variables ---
 int lastButtonStateON = HIGH;
 int lastButtonStateOFF = HIGH;
 int lastButtonStateRESET = HIGH;
 
+// --- Function Declarations ---
 void updateLCD(String line1, String line2 = "");
 void broadcastStatus(const char* action, String value = "", const char* source = SOURCE_ESP32);
-void sendSerialCommand(const char* command);
-
+void sendSerialCommand(const char* command); // Sends command to Arduino via Serial2
 void executeAction(const char* action, String value = "", const char* source = SOURCE_ESP32);
-
 void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-
-void checkPhysicalButton(int buttonPin, int &lastButtonState, unsigned long &lastDebounceTime, const char* actionToTrigger);
-
+void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger);
 void setupPins();
 void setupLCD();
-bool connectWiFi();
+void setupAP();
 void setupWebServer();
-void setupSerialPort();
+void setupSerialPorts(); // New function for serial setup
+void checkPythonInput(); // New function to check Serial for Python input
 
+// --- Setup Function ---
 void setup() {
-    Serial.begin(115200);
+    setupSerialPorts(); // Initialize Serial and Serial2
+
     Serial.println("\n===================================");
-    Serial.println("    KHOI DONG HE THONG LUU KHO    ");
+    Serial.println("   KHOI DONG HE THONG LUU KHO    ");
     Serial.println("===================================");
+    Serial.println("ESP32 san sang nhan lenh tu Web UI, Nut Bam & Python.");
+    Serial.print("Giao tiep voi Arduino Uno qua Serial2 (TX:");
+    Serial.print(UNO_TX_PIN); Serial.print(", RX:"); Serial.print(UNO_RX_PIN);
+    Serial.print(") @ "); Serial.print(SERIAL2_BAUD_RATE); Serial.println(" bps");
 
     setupLCD();
     setupPins();
-    setupSerialPort();
+    setupAP(); // Setup Access Point AFTER Serial/LCD for debugging messages
+    setupWebServer(); // Setup Web Server and WebSocket
 
-    if (!connectWiFi()) {
-        Serial.println("System initialization failed due to WiFi.");
+    // mDNS for easy access by name (http://esp32-kho.local)
+    if (MDNS.begin("esp32-kho")) {
+        Serial.println("mDNS responder started: http://esp32-kho.local");
+        MDNS.addService("http", "tcp", 80);
     } else {
-        setupWebServer();
-        updateLCD("San sang!", "IP:" + WiFi.localIP().toString());
-        Serial.println("System ready. Access web server at http://" + WiFi.localIP().toString());
+        Serial.println("Error setting up mDNS");
     }
+
+    Serial.print("Access Point SSID: "); Serial.println(AP_SSID);
+    Serial.print("Web Server IP: "); Serial.println(WiFi.softAPIP());
+    updateLCD("AP Mode OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15)); // Truncate if IP is too long
 }
 
+// --- Main Loop ---
 void loop() {
-    if (WiFi.status() == WL_CONNECTED) {
-        ws.cleanupClients();
-    } else {
-    }
+    ws.cleanupClients(); // Handle WebSocket connections
 
-    checkPhysicalButton(NUT_ON_VATLY_PIN, lastButtonStateON, lastDebounceTimeON, ACTION_ON);
-    checkPhysicalButton(NUT_OFF_VATLY_PIN, lastButtonStateOFF, lastDebounceTimeOFF, ACTION_OFF);
-    checkPhysicalButton(NUT_RESET_VATLY_PIN, lastButtonStateRESET, lastDebounceTimeRESET, ACTION_RESET);
+    checkPhysicalButtonWithoutDebounce(NUT_ON_VATLY_PIN, lastButtonStateON, ACTION_ON);
+    checkPhysicalButtonWithoutDebounce(NUT_OFF_VATLY_PIN, lastButtonStateOFF, ACTION_OFF);
+    checkPhysicalButtonWithoutDebounce(NUT_RESET_VATLY_PIN, lastButtonStateRESET, ACTION_RESET);
+
+    checkPythonInput(); // Check for commands from Python via Serial
 }
+
+// --- Function Definitions ---
+
+void setupSerialPorts() {
+    Serial.begin(SERIAL_BAUD_RATE);       // Giao tiếp với Serial Monitor / Python qua USB
+    Serial2.begin(SERIAL2_BAUD_RATE, SERIAL_8N1, UNO_RX_PIN, UNO_TX_PIN); // Giao tiếp với Arduino Uno
+    // TX2 (GPIO 17 on ESP32) connects to RX (Pin 0 or other soft serial RX) on Uno
+    // RX2 (GPIO 16 on ESP32) connects to TX (Pin 1 or other soft serial TX) on Uno
+}
+
+void checkPythonInput() {
+    if (Serial.available()) {
+        String data = Serial.readStringUntil('\n');
+        data.trim(); // Remove leading/trailing whitespace and newline chars
+
+        if (data.length() > 0) { // Only process if there's actual data
+            Serial.print("Nhan tu Python [Serial]: '"); Serial.print(data); Serial.println("'");
+
+            // Option 1: Directly forward the raw string to Arduino via Serial2
+            Serial.print("--> Dang gui toi Uno [Serial2]: '"); Serial.print(data); Serial.println("'");
+            Serial2.println(data); // Gửi lệnh nhận được từ Python sang Arduino Uno
+
+            // Option 2 (More complex): Try to parse the Python command as if it were a web command
+            // This would allow Python to send JSON like {"action":"luu_kho"}
+            // Uncomment the block below and comment out Option 1 if you prefer this
+            /*
+            DynamicJsonDocument doc(256);
+            DeserializationError error = deserializeJson(doc, data);
+            if (!error && doc.containsKey("action")) {
+                 const char* action = doc["action"] | "unknown";
+                 String value = doc["value"].as<String>(); // Get value if present
+                 Serial.printf("   Interpreting Python command as: Action='%s', Value='%s'\n", action, value.c_str());
+                 executeAction(action, value, SOURCE_PYTHON); // Execute the action
+            } else {
+                 // If not valid JSON or doesn't fit the expected format, maybe just forward?
+                 Serial.println("   Khong phai JSON hop le hoac thieu 'action'. Gui truc tiep toi Uno.");
+                 Serial2.println(data); // Forward raw data if parsing fails
+                 broadcastStatus("python_raw", data, SOURCE_PYTHON); // Inform web UI about raw data
+            }
+            */
+
+            // Inform the web UI that a command was received from Python (if using Option 1)
+            // We might need a specific action type for raw Python commands if not parsing JSON
+             broadcastStatus("python_cmd_received", data, SOURCE_PYTHON);
+        }
+    }
+}
+
 
 void updateLCD(String line1, String line2) {
     lcd.clear();
     lcd.setCursor(0, 0);
+    // Truncate strings to fit LCD columns
     String printLine1 = line1.substring(0, min((int)line1.length(), LCD_COLS));
     lcd.print(printLine1);
     if (line2 != "") {
@@ -509,81 +577,78 @@ void updateLCD(String line1, String line2) {
         String printLine2 = line2.substring(0, min((int)line2.length(), LCD_COLS));
         lcd.print(printLine2);
     }
-    Serial.println("LCD Updated: " + line1 + " | " + line2);
 }
 
 void broadcastStatus(const char* action, String value, const char* source) {
-    DynamicJsonDocument doc(256);
+    DynamicJsonDocument doc(256); // Increased size slightly for safety
     doc["action"] = action;
     if (value != "") {
         doc["value"] = value;
     }
-    doc["source"] = source;
+    doc["source"] = source; // Indicate where the action originated
 
     String jsonString;
     serializeJson(doc, jsonString);
 
-    Serial.print("Broadcasting WS: ");
-    Serial.println(jsonString);
-    ws.textAll(jsonString);
+    // Serial.print("Broadcasting WS: "); Serial.println(jsonString); // Debugging WS messages
+    ws.textAll(jsonString); // Send JSON status to all connected WebSocket clients
 }
 
+// *** MODIFIED: Sends command to Arduino via Serial2 ***
 void sendSerialCommand(const char* command) {
-    SerialPort.println(command);
-    Serial.printf("Sent Serial Command: %s\n", command);
+    Serial.print("Gui lenh toi Arduino [Serial2]: ");
+    Serial.println(command);
+    Serial2.println(command); // Gửi lệnh qua Serial2 tới Arduino Uno
 }
 
+// Executes the action based on input from Web, Physical button, or potentially Python
 void executeAction(const char* action, String value, const char* source) {
-    Serial.printf("Executing Action: %s (Value: %s, Source: %s)\n", action, value.c_str(), source);
-    updateLCD("Action:", action);
+    Serial.printf("Thuc hien Action: '%s', Value: '%s', Nguon: '%s'\n", action, value.c_str(), source);
 
     if (strcmp(action, ACTION_ON) == 0) {
-        digitalWrite(LUU_KHO_PIN, HIGH);
+        digitalWrite(LUU_KHO_PIN, HIGH); // Example logic, adjust as needed
         digitalWrite(XUAT_KHO_PIN, LOW);
         updateLCD("Mode: ON", source);
-        sendSerialCommand("ON");
-        Serial.println("TODO: Go Home (0,0,0)");
+        sendSerialCommand("ON"); // Send standardized command to Arduino
     } else if (strcmp(action, ACTION_OFF) == 0) {
         digitalWrite(LUU_KHO_PIN, LOW);
         digitalWrite(XUAT_KHO_PIN, LOW);
         updateLCD("Mode: OFF", source);
         sendSerialCommand("OFF");
-        Serial.println("TODO: Stop all motors");
     } else if (strcmp(action, ACTION_RESET) == 0) {
         digitalWrite(LUU_KHO_PIN, LOW);
         digitalWrite(XUAT_KHO_PIN, LOW);
         updateLCD("Mode: RESET", source);
         sendSerialCommand("RESET");
-        Serial.println("TODO: Reset system state");
+         // Reset might require additional logic specific to your system
     } else if (strcmp(action, ACTION_LUU_KHO) == 0) {
-         Serial.println("Action: LUU KHO kich hoat");
-        digitalWrite(LUU_KHO_PIN, HIGH);
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Che do: LUU KHO", "San sang vi tri");
-        sendSerialCommand("L");
+        digitalWrite(LUU_KHO_PIN, HIGH); // Turn on Lưu Kho indicator/actuator
+        digitalWrite(XUAT_KHO_PIN, LOW);  // Turn off Xuất Kho indicator/actuator
+        updateLCD("Che do: LUU KHO", source);
+        sendSerialCommand("L"); // Send 'L' command to Arduino
     } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
-        Serial.println("Action: XUAT KHO kich hoat");
-        digitalWrite(XUAT_KHO_PIN, HIGH);
-        digitalWrite(LUU_KHO_PIN, LOW);
-        updateLCD("Che do: XUAT KHO", "San sang vi tri");
-        sendSerialCommand("X");
+        digitalWrite(XUAT_KHO_PIN, HIGH); // Turn on Xuất Kho indicator/actuator
+        digitalWrite(LUU_KHO_PIN, LOW);  // Turn off Lưu Kho indicator/actuator
+        updateLCD("Che do: XUAT KHO", source);
+        sendSerialCommand("X"); // Send 'X' command to Arduino
     } else if (strcmp(action, ACTION_LOCATION) == 0) {
         if (value != "") {
-            Serial.printf("Action: LOCATION %s kich hoat\n", value.c_str());
             updateLCD("Vi tri:", value);
-            Serial.print("Lua chon vi tri: ");
-            Serial.println(value);
-            Serial.printf("TODO: Move to location %s\n", value.c_str());
-            sendSerialCommand(value.c_str());
+            sendSerialCommand(value.c_str()); // Send location code (e.g., "A1") to Arduino
         } else {
-            Serial.println("Lenh LOCATION thieu value!");
+            Serial.println("Loi: Action 'location' thieu gia tri 'value'.");
             updateLCD("Loi:", "Thieu V.tri");
+             // Optionally send an error status back via WebSocket
+             // broadcastStatus("error", "Missing location value", source);
         }
     } else {
-         Serial.println("Lenh Action khong ro!");
-         updateLCD("Action khong ro", action);
+        Serial.print("Loi: Action khong duoc ho tro: "); Serial.println(action);
+        updateLCD("Action khong ro", action);
+        // Optionally broadcast an error for unrecognized actions
+        // broadcastStatus("error", String("Unknown action: ") + action, source);
     }
 
+    // Always broadcast the executed action and its source back to the web UI
     broadcastStatus(action, value, source);
 }
 
@@ -593,6 +658,8 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
     switch (type) {
         case WS_EVT_CONNECT:
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+             // Optionally send current status to newly connected client
+             // broadcastStatus(currentAction, currentValue, SOURCE_ESP32); // You'd need to store current state
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -600,31 +667,36 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
         case WS_EVT_DATA: {
             AwsFrameInfo *info = (AwsFrameInfo*)arg;
             if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-                data[len] = 0;
+                data[len] = 0; // Null-terminate the received data
                 String jsonStr = (char*)data;
-                Serial.print("Nhan JSON tu client Web: ");
-                Serial.println(jsonStr);
+                Serial.print("Nhan WS data: "); Serial.println(jsonStr);
 
-                DynamicJsonDocument doc(256);
+                DynamicJsonDocument doc(256); // JSON buffer
                 DeserializationError error = deserializeJson(doc, jsonStr);
 
                 if (error) {
-                    Serial.print("Loi phan tich JSON: ");
-                    Serial.println(error.c_str());
+                    Serial.print("Loi phan tich JSON tu WS: "); Serial.println(error.c_str());
                     updateLCD("Loi JSON!", error.c_str());
+                    // Send error back to the specific client
+                    DynamicJsonDocument errorDoc(64);
+                    errorDoc["error"] = "Invalid JSON";
+                    String errorJson;
+                    serializeJson(errorDoc, errorJson);
+                    client->text(errorJson);
                     return;
                 }
 
-                const char* action = doc["action"] | "unknown";
-                String value = doc["value"].as<String>();
+                // Extract action and value from JSON
+                const char* action = doc["action"] | "unknown"; // Default to "unknown" if missing
+                String value = doc["value"].as<String>(); // Get value as String, empty if missing/null
 
-                Serial.printf("Received WS command: Action=%s, Value=%s (from Web)\n", action, value.c_str());
-
+                // Execute the action received from the web client
                 executeAction(action, value, SOURCE_WEB);
             }
             break;
         }
         case WS_EVT_PONG:
+             Serial.printf("WebSocket client #%u pong\n", client->id());
             break;
         case WS_EVT_ERROR:
             Serial.printf("WebSocket client #%u error(%u): %s\n", client->id(), *((uint16_t*)arg), (char*)data);
@@ -632,99 +704,94 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
     }
 }
 
-
-void checkPhysicalButton(int buttonPin, int &lastButtonState, unsigned long &lastDebounceTime, const char* actionToTrigger) {
+// Checks physical button press (simple check, no debounce library)
+void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger) {
     int reading = digitalRead(buttonPin);
-    unsigned long currentTime = millis();
 
-    if (reading != lastButtonState) {
-        lastDebounceTime = currentTime;
+    // Trigger only on HIGH to LOW transition (button pressed with PULLUP)
+    if (reading == LOW && lastButtonState == HIGH) {
+         // Simple delay-based debounce - wait a short time
+         delay(50); // Adjust this value as needed (e.g., 20-100ms)
+         reading = digitalRead(buttonPin); // Read again after delay
+
+         if (reading == LOW) { // If still LOW after delay, consider it a valid press
+              Serial.printf("Nut vat ly (pin %d) nhan! Kich hoat action: %s\n", buttonPin, actionToTrigger);
+              executeAction(actionToTrigger, "", SOURCE_PHYSICAL); // Execute with "physical" source
+              lastButtonState = LOW; // Update state only after confirmed press
+         }
+    } else if (reading == HIGH && lastButtonState == LOW) {
+        // Button released - update state
+        lastButtonState = HIGH;
+        // Optional: Add delay here too if needed for release debounce
+        // Serial.printf("Nut vat ly (pin %d) nha.\n", buttonPin);
     }
-
-    if ((currentTime - lastDebounceTime) > DEBOUNCE_DELAY) {
-        if (reading != lastButtonState) {
-            lastButtonState = reading;
-
-            if (reading == LOW) {
-                Serial.printf("Nut vat ly (pin %d) nhan! Kich hoat action: %s\n", buttonPin, actionToTrigger);
-
-                executeAction(actionToTrigger, "", SOURCE_PHYSICAL);
-            }
-        }
-    }
+    // No action needed if state hasn't changed or if transition is LOW to HIGH without prior LOW state ثبت.
 }
 
 void setupPins() {
     pinMode(LUU_KHO_PIN, OUTPUT);
     pinMode(XUAT_KHO_PIN, OUTPUT);
-    digitalWrite(LUU_KHO_PIN, LOW);
-    digitalWrite(XUAT_KHO_PIN, LOW);
+    digitalWrite(LUU_KHO_PIN, LOW); // Default state OFF
+    digitalWrite(XUAT_KHO_PIN, LOW); // Default state OFF
 
+    // Configure physical buttons with internal pull-up resistors
     pinMode(NUT_ON_VATLY_PIN, INPUT_PULLUP);
     pinMode(NUT_OFF_VATLY_PIN, INPUT_PULLUP);
     pinMode(NUT_RESET_VATLY_PIN, INPUT_PULLUP);
 
     Serial.println("GPIO pins configured.");
 
+    // Read initial button states
     lastButtonStateON    = digitalRead(NUT_ON_VATLY_PIN);
     lastButtonStateOFF   = digitalRead(NUT_OFF_VATLY_PIN);
     lastButtonStateRESET = digitalRead(NUT_RESET_VATLY_PIN);
 }
 
 void setupLCD() {
-    lcd.init();
-    lcd.backlight();
+    lcd.init();      // Initialize the LCD
+    lcd.backlight(); // Turn on the backlight
     updateLCD("Khoi dong...", "Xin cho");
     Serial.println("LCD initialized.");
 }
 
-void setupSerialPort() {
-    SerialPort.begin(115200, SERIAL_8N1, SERIAL1_RX_PIN, SERIAL1_TX_PIN);
-    Serial.println("Serial1 port initialized at 115200 baud.");
-}
+void setupAP() {
+    Serial.println("Setting up WiFi Access Point...");
+    updateLCD("Tao AP Wifi...", AP_SSID);
 
-bool connectWiFi() {
-    updateLCD("Ket noi Wifi...", WIFI_SSID);
-    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+    WiFi.mode(WIFI_AP); // Set ESP32 to Access Point mode
 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    int attempts = 0;
-    const int maxAttempts = 30;
+    // Start the AP. Provide password only if it's not empty.
+    bool result = (strcmp(AP_PASSWORD, "") == 0) ?
+                   WiFi.softAP(AP_SSID) :
+                   WiFi.softAP(AP_SSID, AP_PASSWORD);
 
-    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-        if (attempts % 2 == 0) updateLCD("Ket noi Wifi...", WIFI_SSID);
-        else updateLCD("Ket noi Wifi...", "");
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("\nFailed to connect to WiFi!");
-        updateLCD("Loi Wifi!", "Kiem tra mang");
-        return false;
+    if (result) {
+        Serial.println("WiFi AP started successfully");
+        Serial.print("AP IP address: "); Serial.println(WiFi.softAPIP());
+        updateLCD("AP OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15)); // Truncate IP if needed
     } else {
-        Serial.println("\nWiFi connected!");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
-        delay(1000);
-        return true;
+        Serial.println("Error setting up WiFi AP");
+        updateLCD("Loi tao AP!", "Khoi dong lai");
+        delay(2000);
+        ESP.restart(); // Restart ESP32 if AP setup fails
     }
 }
 
 void setupWebServer() {
-    ws.onEvent(handleWebSocketEvent);
-    server.addHandler(&ws);
-    Serial.println("WebSocket server configured.");
+    ws.onEvent(handleWebSocketEvent); // Attach WebSocket event handler
+    server.addHandler(&ws);           // Add WebSocket handler to the server
+    Serial.println("WebSocket server configured at /ws");
 
+    // Serve the HTML page from PROGMEM at the root URL "/"
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send_P(200, "text/html", trangHtml);
     });
 
+    // Handle Not Found requests
     server.onNotFound([](AsyncWebServerRequest *request) {
         request->send(404, "text/plain", "404 Not Found");
     });
 
-    server.begin();
+    server.begin(); // Start the HTTP server
     Serial.println("HTTP server started.");
 }
