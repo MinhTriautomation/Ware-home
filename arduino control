@@ -1,8 +1,6 @@
 #include <Servo.h>
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 
-SoftwareSerial espSerial(A1, A2);
 const long BAUD_RATE = 9600;
 
 const int chanDirX = 2; const int chanPulX = 3;
@@ -14,7 +12,7 @@ const int in3 = 11; const int in4 = 12;
 const int ctX = A5; const int ctY = A4;
 const int relayPin = 13;
 
-String receivedData = "";
+String tinHieuESP = "";
 
 Servo myServo;
 const int soBuocTren1Vong = 3200;
@@ -70,27 +68,48 @@ void setup() {
     myServo.attach(servoPin);
     myServo.write(0);
 
-  Serial.begin(BAUD_RATE);           // Serial monitor
-  espSerial.begin(BAUD_RATE);   // Giao tiếp với ESP32
-
-  Serial.println("Đang chờ tín hiệu từ ESP32...");
+    Serial.begin(BAUD_RATE);           // Serial monitor
 }
 
 
 void loop() {
-  while (espSerial.available()) {
-    char ch = espSerial.read();
-    if (ch == '\n') {
-      receivedData.trim();
-      Serial.print("Nhận được từ ESP32: ");
-      Serial.println(receivedData);
-      handleReceivedCommand(receivedData);
-      receivedData = "";
-    } else {
-      receivedData += ch;
+ if (Serial.available()) {
+
+    tinHieuESP = Serial.readStringUntil('\n');
+    tinHieuESP.trim();
+    Serial.print(tinHieuESP);
+    // Chi xu ly neu chuoi nhan duoc khong rong
+    if (tinHieuESP.length() > 0) {
+      if (tinHieuESP == "ON") {
+        Serial.println(" -> Nhan lenh ON");
+      } else if (tinHieuESP == "L") {
+        Serial.println(" -> Nhan lenh L");
+      } else if (tinHieuESP == "A") {
+        Serial.println(" -> Nhan lenh A");
+        bangTaiThuan();
+        delay(1000);
+        if (digitalRead(sensor1) == HIGH) {
+          bangTaiDung();
+          gatVat();
+        }
+      } else if (tinHieuESP == "OFF") {
+        Serial.println(" -> Nhan lenh OFF");
+      } else if (tinHieuESP == "RESET") {
+        daVaoA1 = false;daVaoA2 = false;daVaoB1 = false;
+        daVaoB2 = false;daVaoC1 = false;daVaoC2 = false;
+        daRaA1 = false;daRaA2 = false;daRaB1 = false;
+        daRaB2 = false;daRaC1 = false;daRaC2 = false;
+        nhacHangRa = false;traHangXong = false;
+        daVeHome = false;
+        daChayBangTaiThuan = false;daChayBangTaiNghich = false;daChayBangTaiDung = false;
+        Serial.println(" -> Nhan lenh RESET");
+      } else {
+        Serial.println(" -> Lenh khong xac dinh");
+      }
     }
   }
 }
+
 //Phai sang trai
 void quayThuanX(long soBuocMuonQuay) {
     digitalWrite(chanDirX, HIGH);
@@ -544,19 +563,5 @@ void traHang(){
       daVeHome = false;
   }
 }
-void handleReceivedCommand(String command) {
-  if (command == "A") {
-    Serial.println("Xử lý sản phẩm A");
-    // Thêm xử lý
-  } else if (command == "B") {
-    Serial.println("Xử lý sản phẩm B");
-  } else if (command == "C") {
-    Serial.println("Xử lý sản phẩm C");
-  } else if (command == "SAI") {
-    Serial.println("Dữ liệu sai");
-  } else {
-    Serial.print("Lệnh không hợp lệ: ");
-    Serial.println(command);
-  }
-}
+
 
