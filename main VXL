@@ -1,0 +1,138 @@
+import cv2
+import serial
+import time
+import sys
+import numpy as np
+from qr_processor_module import load_yolo_model, process_qr_with_yolo
+
+YOLO_MODEL_PATH = r"D:\NCKH NHOM 2\full code\last.pt"
+SERIAL_PORT = "COM9"
+BAUD_RATE = 9600
+CAMERA_ID = 2
+YOLO_CONFIDENCE_THRESHOLD = 0.6
+REQUIRED_QR_KEY = "Product"
+SEND_DELAY_SECONDS = 5.0
+
+print("Đang tải model YOLO...")
+yolo_model = load_yolo_model(YOLO_MODEL_PATH)
+if yolo_model is None:
+    print("Không thể tải model YOLO. Thoát chương trình.")
+    sys.exit()
+print("Model YOLO đã tải thành công.")
+
+ser = None
+try:
+    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+    print(f"Đã kết nối Serial tới {SERIAL_PORT} với Baud rate {BAUD_RATE}")
+    time.sleep(2)
+except serial.SerialException as e:
+    print(f"Lỗi mở cổng Serial {SERIAL_PORT}: {e}")
+    print("Chương trình sẽ chạy nhưng không thể giao tiếp với Arduino.")
+    ser = None
+except Exception as e:
+    print(f"Lỗi không xác định khi mở cổng Serial: {e}")
+    print("Chương trình sẽ chạy nhưng không thể giao tiếp với Arduino.")
+    ser = None
+
+print(f"Đang mở camera ID {CAMERA_ID}...")
+cap = cv2.VideoCapture(CAMERA_ID)
+if not cap.isOpened():
+    print(f"Không thể mở camera với ID {CAMERA_ID}.")
+    if ser: ser.close()
+    sys.exit()
+print("Camera đã mở thành công. Nhấn 'q' để thoát.")
+
+status_text = "Status: Waiting for QR..."
+qr_info_text = "QR: Not detected"
+sent_status_text = "Sent: None"
+status_color = (128, 128, 128)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Không thể nhận khung (stream end?). Thoát ...")
+        break
+
+    qr_data_list = None
+    detected_qr_boxes = []
+
+    try:
+        if yolo_model:
+            results_draw = yolo_model(frame, verbose=False)
+            for r_draw in results_draw:
+                if hasattr(r_draw, 'boxes') and r_draw.boxes is not None:
+                    for box_draw in r_draw.boxes:
+                        conf_draw = float(box_draw.conf[0])
+                        cls_id_draw = int(box_draw.cls[0])
+                        qr_class_id_in_yolo = 0
+                        if conf_draw > YOLO_CONFIDENCE_THRESHOLD and cls_id_draw == qr_class_id_in_yolo:
+                            x1, y1, x2, y2 = map(int, box_draw.xyxy[0].tolist())
+                            detected_qr_boxes.append(((x1, y1, x2, y2), box_draw.conf[0]))
+        qr_data_list = process_qr_with_yolo(frame, yolo_model, YOLO_CONFIDENCE_THRESHOLD)
+    except Exception as e:
+        print(f"Lỗi khi xử lý QR: {e}")
+        qr_data_list = None
+        detected_qr_boxes = []
+
+    qr_data_detected_this_frame = qr_data_list is not None and len(qr_data_list) > 0
+
+    if qr_data_detected_this_frame:
+        first_qr_data = qr_data_list[0]
+        product_value = first_qr_data.get(REQUIRED_QR_KEY)
+        display_product_value = "None"
+        if product_value is not None and isinstance(product_value, str) and product_value.strip() != "":
+            display_product_value = product_value.strip()
+        qr_info_text = f"QR: {REQUIRED_QR_KEY}={display_product_value}"
+        data_to_send = None
+        if display_product_value != "None":
+            data_to_send = b'T'
+            status_text = "Status: QR Valid - Ready to Send T"
+            status_color = (0, 255, 0)
+            sent_status_text = f"Preparing to Send: T (Delay {SEND_DELAY_SECONDS}s)"
+        else:
+            data_to_send = b'F'
+            status_text = "Status: QR Invalid - Ready to Send F"
+            status_color = (0, 0, 255)
+            sent_status_text = f"Preparing to Send: F (Delay {SEND_DELAY_SECONDS}s)"
+        if data_to_send is not None:
+            print(f"Đã xác định tín hiệu '{data_to_send.decode()}'. Delaying for {SEND_DELAY_SECONDS} seconds before sending...")
+            time.sleep(SEND_DELAY_SECONDS)
+            print("Delay finished. Attempting to send now.")
+            if ser:
+                try:
+                    ser.write(data_to_send + b'\n')
+                    sent_status_text = f"Sent: {data_to_send.decode()}"
+                except serial.SerialException as e:
+                    print(f"Lỗi khi gửi dữ liệu qua Serial: {e}")
+                    sent_status_text = f"Send Error: {e}"
+                except Exception as e:
+                    print(f"Lỗi không xác định khi gửi dữ liệu: {e}")
+                    sent_status_text = f"Send Error: {e}"
+            else:
+                sent_status_text = "Sent: Failed (Serial Not Connected)"
+                if 'Valid' in status_text: status_color = (0, 255, 255)
+                else: status_color = (255, 165, 0)
+    else:
+        status_text = "Status: QR Not Detected"
+        qr_info_text = "QR: Not detected"
+        status_color = (128, 128, 128)
+        sent_status_text = "Sent: None (No QR)"
+
+    for (x1, y1, x2, y2), conf in detected_qr_boxes:
+        bbox_color = status_color
+        cv2.rectangle(frame, (x1, y1), (x2, y2), bbox_color, 2)
+
+    cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
+    cv2.putText(frame, qr_info_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    cv2.putText(frame, sent_status_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 1)
+    cv2.imshow('QR Detection Status for Arduino', frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+if ser:
+    ser.close()
+    print("Đã đóng kết nối Serial.")
+print("Chương trình đã kết thúc.")
