@@ -2,25 +2,26 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// --- Dinh nghia Chan (Pins) ---
-#define CHAN_NUT_BAT         2   // Chan nut BAT
-#define CHAN_NUT_TAT         3   // Chan nut TAT
-#define CHAN_NUT_RESET       4   // Chan nut RESET
-#define CHAN_SERVO           5   // Chan dieu khien Servo
-#define CHAN_CAM_BIEN_IR1    6   // Chan cam bien IR 1 (dau bang tai)
-#define CHAN_CAM_BIEN_IR2    7   // Chan cam bien IR 2 (truoc diem phan loai)
-#define CHAN_MOTOR_IN3       8   // Chan IN3 cua L298N
-#define CHAN_MOTOR_IN4       9   // Chan IN4 cua L298N
-#define relayPin             10   //Chan relayS
-// --- Cau hinh Serial ---
-#define TOC_DO_BAUD       115200
+// Định nghĩa chân
+#define CHAN_NUT_BAT 2      // Nút ON
+#define CHAN_NUT_TAT 3      // Nút OFF
+#define CHAN_NUT_RESET 4    // Nút RESET
+#define CHAN_SERVO 5        // Chân servo
+#define CHAN_CAM_BIEN_IR1 6 // Cảm biến IR 1 (đầu băng tải)
+#define CHAN_CAM_BIEN_IR2 7 // Cảm biến IR 2 (trước điểm phân loại)
+#define CHAN_MOTOR_IN3 8    // Chân IN3 của L298N
+#define CHAN_MOTOR_IN4 9    // Chân IN4 của L298N
+#define relayPin 10         // Chân relay
 
-// --- Cau hinh LCD I2C ---
-#define DIA_CHI_LCD_I2C    0x27 // Dia chi I2C cua LCD, co the la 0x3F
-#define SO_COT_LCD        16   // So cot cua LCD (vi du 1602)
-#define SO_HANG_LCD        2    // So hang cua LCD (vi du 1602)
+// Cấu hình Serial
+#define TOC_DO_BAUD 9600
 
-// Trạng thái của cảm biến IR
+// Cấu hình LCD I2C
+#define DIA_CHI_LCD_I2C 0x27 // Địa chỉ I2C của LCD
+#define SO_COT_LCD 16        // Số cột LCD
+#define SO_HANG_LCD 2        // Số hàng LCD
+
+// Biến trạng thái
 bool trangThaiCamBienIR1 = HIGH;
 bool trangThaiCamBienIR2 = HIGH;
 bool trangThaiNutBatHienTai = HIGH;
@@ -29,125 +30,191 @@ bool trangThaiNutResetHienTai = HIGH;
 bool daChayBangTaiThuan = false;
 bool daChayBangTaiNghich = false;
 bool daChayBangTaiDung = false;
+bool heThongDangBat = false; // Trạng thái hệ thống ON
+bool dangChoTinHieu = false; // Đang chờ tín hiệu Python
+int soSanPhamT = 0;          // Số sản phẩm hợp lệ (T)
+int soSanPhamF = 0;          // Số sản phẩm lỗi (F)
 
 Servo myServo;
 LiquidCrystal_I2C lcd(DIA_CHI_LCD_I2C, SO_COT_LCD, SO_HANG_LCD);
 
-char lenhPython = '\0';  // Biến lưu lệnh nhận được
-
+char lenhPython = '\0'; // Lưu lệnh từ Python
 bool gatXong = false;
+
+// Cập nhật hiển thị LCD
+void capNhatLCD(String trangThai) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("T:" + String(soSanPhamT) + " F:" + String(soSanPhamF));
+  lcd.setCursor(0, 1);
+  lcd.print(trangThai);
+}
+
+// Phân loại servo
 void gatVat() {
-  if(!gatXong){
+  if (!gatXong) {
     digitalWrite(relayPin, HIGH);
     delay(500);
     myServo.write(0);
     delay(1000);
-    for (int gocServo = 0; gocServo <= 160; gocServo += 1) {
-        myServo.write(gocServo);
-        delay(15);
+    for (int gocServo = 0; gocServo <= 160; gocServo++) {
+      myServo.write(gocServo);
+      delay(15);
     }
     delay(1000);
-    for (int gocServo = 180; gocServo >= 0; gocServo -= 1) {
-        myServo.write(gocServo);
-        delay(15);
+    for (int gocServo = 180; gocServo >= 0; gocServo--) {
+      myServo.write(gocServo);
+      delay(15);
     }
     delay(1500);
     digitalWrite(relayPin, LOW);
-
     gatXong = true;
   }
 }
+
+// Nhận tín hiệu từ Python
 void nhanTinHieuTuPython() {
   if (Serial.available() > 0) {
     char kyTu = Serial.read();
-
-    // Kiểm tra ký tự hợp lệ
     if (kyTu == 'T' || kyTu == 'F') {
       lenhPython = kyTu;
-      Serial.print("Nhan duoc tin hieu tu Python: ");
+      Serial.print("Nhan tin hieu Python: ");
       Serial.println(lenhPython);
-
-      // Xử lý hành động tương ứng
+      lcd.clear();
       if (lenhPython == 'T') {
-
         Serial.println("San pham hop le");
-
+        lcd.print("San pham hop le");
+        bangTaiThuan();
       } else if (lenhPython == 'F') {
-
         Serial.println("San pham loi");
-
+        lcd.print("San pham loi");
+        bangTaiThuan();
       }
+      dangChoTinHieu = false;
     }
   }
 }
 
+// Băng tải thuận
 void bangTaiThuan() {
-    if (!daChayBangTaiThuan) {
-        digitalWrite(CHAN_MOTOR_IN3, HIGH);
-        digitalWrite(CHAN_MOTOR_IN4, LOW);
-        daChayBangTaiThuan = true;
-    }
+  if (!daChayBangTaiThuan) {
+    digitalWrite(CHAN_MOTOR_IN3, HIGH);
+    digitalWrite(CHAN_MOTOR_IN4, LOW);
+    daChayBangTaiThuan = true;
+    daChayBangTaiNghich = false;
+    daChayBangTaiDung = false;
+  }
 }
-// Băng tải nghịch: từ trong ra ngoài
+
+// Băng tải nghịch
 void bangTaiNghich() {
-    if (!daChayBangTaiNghich) {
-        digitalWrite(CHAN_MOTOR_IN3, LOW);
-        digitalWrite(CHAN_MOTOR_IN4, HIGH);
-        daChayBangTaiNghich = true;
-    }
+  if (!daChayBangTaiNghich) {
+    digitalWrite(CHAN_MOTOR_IN3, LOW);
+    digitalWrite(CHAN_MOTOR_IN4, HIGH);
+    daChayBangTaiNghich = true;
+    daChayBangTaiThuan = false;
+    daChayBangTaiDung = false;
+  }
 }
 
 // Dừng băng tải
 void bangTaiDung() {
-    if (!daChayBangTaiDung) {
-        digitalWrite(CHAN_MOTOR_IN3, HIGH);
-        digitalWrite(CHAN_MOTOR_IN4, HIGH);
-        daChayBangTaiDung = true;
-    }
+  if (!daChayBangTaiDung) {
+    digitalWrite(CHAN_MOTOR_IN3, HIGH);
+    digitalWrite(CHAN_MOTOR_IN4, HIGH);
+    daChayBangTaiDung = true;
+    daChayBangTaiThuan = false;
+    daChayBangTaiNghich = false;
+  }
+}
+
+// Đặt lại hệ thống
+void resetHeThong() {
+  daChayBangTaiThuan = false;
+  daChayBangTaiNghich = false;
+  daChayBangTaiDung = false;
+  gatXong = false;
+  lenhPython = '\0';
+  heThongDangBat = false;
+  dangChoTinHieu = false;
+  soSanPhamT = 0;
+  soSanPhamF = 0;
+  myServo.write(0);
+  digitalWrite(relayPin, LOW);
+  bangTaiDung();
+  capNhatLCD("RESET");
 }
 
 void setup() {
-// Khởi động Serial
   Serial.begin(TOC_DO_BAUD);
-
   pinMode(CHAN_NUT_BAT, INPUT_PULLUP);
   pinMode(CHAN_NUT_TAT, INPUT_PULLUP);
   pinMode(CHAN_NUT_RESET, INPUT_PULLUP);
-
   pinMode(relayPin, OUTPUT);
   digitalWrite(relayPin, LOW);
-
   pinMode(CHAN_MOTOR_IN3, OUTPUT);
   pinMode(CHAN_MOTOR_IN4, OUTPUT);
-  
   pinMode(CHAN_CAM_BIEN_IR1, INPUT);
   pinMode(CHAN_CAM_BIEN_IR2, INPUT);
   myServo.attach(CHAN_SERVO);
   myServo.write(0);
   lcd.init();
   lcd.backlight();
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("He thong san sang");
+  capNhatLCD("San sang");
 }
 
 void loop() {
   trangThaiNutBatHienTai = digitalRead(CHAN_NUT_BAT);
   trangThaiNutTatHienTai = digitalRead(CHAN_NUT_TAT);
   trangThaiNutResetHienTai = digitalRead(CHAN_NUT_RESET);
-
   trangThaiCamBienIR1 = digitalRead(CHAN_CAM_BIEN_IR1);
   trangThaiCamBienIR2 = digitalRead(CHAN_CAM_BIEN_IR2);
-//ON
-  if (trangThaiNutBatHienTai = LOW){
-
+  if (trangThaiNutResetHienTai == LOW) {
+    resetHeThong();
+    delay(200);
   }
-//OFF
-if (trangThaiNutTatHienTai = LOW){
-
+  if (trangThaiNutTatHienTai == LOW && heThongDangBat) {
+    heThongDangBat = false;
+    dangChoTinHieu = false;
+    bangTaiDung();
+    digitalWrite(relayPin, LOW);
+    myServo.write(0);
+    capNhatLCD("OFF");
+    delay(200);
   }
-//RESET  
-if  (trangThaiNutResetHienTai = LOW){
-
+  if (trangThaiNutBatHienTai == LOW && !heThongDangBat) {
+    heThongDangBat = true;
+    dangChoTinHieu = true;
+    capNhatLCD("ON");
+    delay(200);
+  }
+  if (heThongDangBat) {
+    if (dangChoTinHieu) {
+      nhanTinHieuTuPython();
+    } else {
+      if (lenhPython == 'T') {
+        if (trangThaiCamBienIR2 == LOW) {
+          delay(500);
+          bangTaiDung();
+          soSanPhamT++;
+          dangChoTinHieu = true;
+          capNhatLCD("Cho tin hieu");
+          lenhPython = '\0';
+        }
+      } else if (lenhPython == 'F') {
+        if (trangThaiCamBienIR1 == LOW) {
+          delay(400);
+          bangTaiDung();
+          delay(100);
+          gatVat();
+          bangTaiDung();
+          soSanPhamF++;
+          dangChoTinHieu = true;
+          gatXong = false;
+          capNhatLCD("Cho tin hieu");
+          lenhPython = '\0';
+        }
+      }
+    }
   }
 }
