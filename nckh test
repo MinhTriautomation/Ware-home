@@ -1,0 +1,623 @@
+#include <Servo.h>
+#include <Arduino.h>
+
+const long BAUD_RATE = 9600;
+
+const int chanDirX = 2; const int chanPulX = 3;
+const int chanDirY = 4; const int chanPulY = 5;
+const int chanDirZ = 7; const int chanPulZ = 6;
+const int sensor1 = 8; const int sensor2 = 9;
+const int servoPin = 10;
+const int in3 = 11; const int in4 = 12;
+const int ctX = A5; const int ctY = A4;
+const int relayPin = 13;
+
+String tinHieuESP = "";
+
+Servo myServo;
+const int soBuocTren1Vong = 3200;
+const int tocDoQuayXY = 30;
+const int tocDoQuayZ = 1000;
+
+bool daVaoA1 = false;
+bool daVaoA2 = false;
+bool daVaoB1 = false;
+bool daVaoB2 = false;
+bool daVaoC1 = false;
+bool daVaoC2 = false;
+
+bool daRaA1 = false;
+bool daRaA2 = false;
+bool daRaB1 = false;
+bool daRaB2 = false;
+bool daRaC1 = false;
+bool daRaC2 = false;
+
+bool nhacHangRa = false;
+bool traHangXong = false ;
+
+bool daVeHome = false;
+
+bool daChayBangTaiThuan = false;
+bool daChayBangTaiNghich = false;
+bool daChayBangTaiDung = false;
+
+bool heThongOn = false;
+bool cheDoL = false;
+bool cheDoX = false;
+
+bool trangThaiSensor1 = HIGH;
+bool trangThaiSensor2 = HIGH;
+
+void setup() {
+
+    pinMode(ctX, INPUT_PULLUP);
+    pinMode(ctY, INPUT_PULLUP);
+
+    pinMode(sensor1, INPUT);
+    pinMode(sensor2, INPUT);
+    trangThaiSensor1 = digitalRead(sensor1);
+    trangThaiSensor2 = digitalRead(sensor2);
+
+    pinMode(chanDirX, OUTPUT); pinMode(chanPulX, OUTPUT);
+    pinMode(chanDirY, OUTPUT); pinMode(chanPulY, OUTPUT);
+    pinMode(chanDirZ, OUTPUT); pinMode(chanPulZ, OUTPUT);
+    digitalWrite(chanPulX, LOW);
+    digitalWrite(chanPulY, LOW);
+    digitalWrite(chanPulZ, LOW);
+
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
+
+    pinMode(relayPin, OUTPUT);
+    digitalWrite(relayPin, LOW);
+
+    myServo.attach(servoPin);
+    myServo.write(0);
+
+    Serial.begin(BAUD_RATE);           // Serial monitor
+}
+
+//Phai sang trai
+void quayThuanX(long soBuocMuonQuay) {
+    digitalWrite(chanDirX, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);   // HIGH đủ lâu cho TB6600
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+//Trai sang phai
+void quayNghichX(long soBuocMuonQuay) {
+    digitalWrite(chanDirX, LOW);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+//Duoi len tren
+void quayThuanY(long soBuocMuonQuay) {
+    digitalWrite(chanDirY, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+//Tren xuong duoi
+void quayNghichY(long soBuocMuonQuay) {
+    digitalWrite(chanDirY, LOW);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+//Trong ra ngoai
+void quayThuanZ(long soBuocMuonQuay) {
+    digitalWrite(chanDirZ, LOW);   // Z quay thuận là LOW (theo bạn khai báo)
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+//Ngoai vao trong
+void quayNghichZ(long soBuocMuonQuay) {
+    digitalWrite(chanDirZ, HIGH);
+    for (long i = 0; i < soBuocMuonQuay; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+//Dung X Y Z
+void dungX() {
+    digitalWrite(chanPulX, LOW);
+}
+
+void dungY() {
+    digitalWrite(chanPulY, LOW);
+}
+
+void dungZ() {
+    digitalWrite(chanPulZ, LOW);
+}
+// Băng tải thuận: từ ngoài vào trong
+void bangTaiThuan() {
+    if (!daChayBangTaiThuan) {
+        digitalWrite(in3, HIGH);
+        digitalWrite(in4, LOW);
+        daChayBangTaiThuan = true;
+    }
+}
+
+// Băng tải nghịch: từ trong ra ngoài
+void bangTaiNghich() {
+    if (!daChayBangTaiNghich) {
+        digitalWrite(in3, LOW);
+        digitalWrite(in4, HIGH);
+        daChayBangTaiNghich = true;
+    }
+}
+
+// Dừng băng tải
+void bangTaiDung() {
+    if (!daChayBangTaiDung) {
+        digitalWrite(in3, HIGH);
+        digitalWrite(in4, HIGH);
+        daChayBangTaiDung = true;
+    }
+}
+bool gatXong = false;
+void gatVat() {
+  if(!gatXong){
+    digitalWrite(relayPin, HIGH);
+    delay(500);
+    myServo.write(0);
+    delay(1000);
+    for (int gocServo = 0; gocServo <= 160; gocServo += 1) {
+        myServo.write(gocServo);
+        delay(15);
+    }
+    delay(1000);
+    for (int gocServo = 180; gocServo >= 0; gocServo -= 1) {
+        myServo.write(gocServo);
+        delay(15);
+    }
+    delay(1500);
+    digitalWrite(relayPin, LOW);
+
+    gatXong = true;
+  }
+}
+void quayThuanX_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirX, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayNghichX_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirX, LOW);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulX, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulX, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanY_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirY, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayNghichY_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirY, LOW);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulY, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulY, LOW);  delayMicroseconds(tocDoQuayXY);
+    }
+}
+
+void quayThuanZ_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirZ, LOW);   // Z quay thuận là LOW
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+
+void quayNghichZ_Vong(float soVong) {
+    long soBuoc = soVong * soBuocTren1Vong;
+    digitalWrite(chanDirZ, HIGH);
+    for (long i = 0; i < soBuoc; i++) {
+        digitalWrite(chanPulZ, HIGH); delayMicroseconds(10);
+        digitalWrite(chanPulZ, LOW);  delayMicroseconds(tocDoQuayZ);
+    }
+}
+
+void dichuyenvaoA1() {
+    if (!daVaoA1){
+        quayNghichX_Vong(20.5 * 5);   // Trục X quay thuận 13.5 vòng
+        delay(200);
+        quayThuanY_Vong(5 * 5);     //
+        delay(200);
+        quayThuanZ_Vong(1.3);       // Trục Z quay thuận 2 vòng
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);     // Trục Y quay nghịch 3 vòng
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);      // Trục Z quay nghịch 2 vòng
+        delay(200);
+        daVaoA1 = true;
+        daVeHome = true;
+    }
+}
+
+void dichuyenvaoA2() {
+    if (!daVaoA2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(5 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoA2 = true;
+        daVeHome = true;
+    }
+}
+
+void dichuyenvaoB1() {
+    if (!daVaoB1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(15.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoB1 = true;
+        daVeHome = true;
+    }
+}
+
+void dichuyenvaoB2() {
+    if (!daVaoB2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(15.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoB2 = true;
+        daVeHome = true;
+    }
+}
+
+void dichuyenvaoC1() {
+    if (!daVaoC1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(25.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoC1 = true;
+        daVeHome = true;
+    }
+}
+void dichuyenvaoC2() {
+    if (!daVaoC2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(25.5 * 5);
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayNghichY_Vong(3 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daVaoC2 = true;
+        daVeHome = true;
+    }
+}
+
+
+void dichuyenraA1() {
+    if (!daRaA1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(3 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaA1 = true;
+        daVeHome = false;
+    }
+}
+
+void dichuyenraA2() {
+    if (!daRaA2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(3 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaA2 = true;
+        daVeHome = false;
+    }
+}
+void dichuyenraB1() {
+    if (!daRaB1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong(12 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaB1 = true;
+        daVeHome = false;
+    }
+}
+void dichuyenraB2() {
+    if (!daRaB2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong(14 * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaB2 = true;
+        daVeHome = false;
+    }
+}
+
+void dichuyenraC1() {
+    if (!daRaC1) {
+        quayNghichX_Vong(20.5 * 5);
+        delay(200);
+        quayThuanY_Vong((25.5 - 3) * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaC1 = true;
+        daVeHome = false;
+    }
+}
+void dichuyenraC2() {
+    if (!daRaC2) {
+        quayNghichX_Vong(40 * 5);
+        delay(200);
+        quayThuanY_Vong((25.5 - 3) * 5);
+        delay(200);
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        daRaC2 = true;
+        daVeHome = false;
+    }
+}
+
+void home(){
+    if (!daVeHome) {
+            // Quay thuận trục X đến khi công tắc ctX kích hoạt
+            while (digitalRead(ctX) == HIGH) {
+                digitalWrite(chanDirX, HIGH);  // Quay thuận X
+                digitalWrite(chanPulX, HIGH);
+                delayMicroseconds(20);
+                digitalWrite(chanPulX, LOW);
+                delayMicroseconds(20);
+            }
+
+            // Sau khi công tắc ctX bị kích hoạt, quay nghịch X 5 vòng
+            quayNghichX_Vong(5);
+
+            // Quay nghịch trục Y đến khi công tắc ctY kích hoạt
+            while (digitalRead(ctY) == HIGH) {
+                digitalWrite(chanDirY, LOW);  // Quay nghịch Y
+                digitalWrite(chanPulY, HIGH);
+                delayMicroseconds(30);
+                digitalWrite(chanPulY, LOW);
+                delayMicroseconds(30);
+            }
+
+            // Sau khi công tắc ctY bị kích hoạt, quay thuận Y 15 vòng
+            quayThuanY_Vong(8);
+
+            // Đánh dấu hàm đã thực hiện xong
+            daVeHome = true;
+        }
+
+    }
+void nhacHang(){
+  if(!nhacHangRa){
+        quayThuanZ_Vong(1.3);
+        delay(200);
+        dungZ();
+        quayThuanY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        quayNghichZ_Vong(1.3);
+        delay(200);
+        quayNghichY_Vong(2 * 5);
+        dungY();
+        delay(200);
+        nhacHangRa = true;
+        daVeHome = false;
+  }
+}
+void traHang(){
+  if(!traHangXong){
+      quayThuanY_Vong(2 * 5);
+      dungY();
+      delay(200);
+      quayThuanZ_Vong(1.3);
+      delay(200);
+      dungZ();
+      quayNghichY_Vong(2 * 5);
+      dungY();
+      delay(200);
+      quayNghichZ_Vong(1.3);
+      delay(200);
+      dungZ();
+      traHangXong = true;
+      daVeHome = false;
+  }
+}
+void loop() {
+  home();
+  dichuyenvaoA1();
+// trangThaiSensor1 = digitalRead(sensor1);
+// trangThaiSensor2 = digitalRead(sensor2);
+
+//   if (Serial.available()) {
+//       tinHieuESP = Serial.readStringUntil('\n');
+//       tinHieuESP.trim();
+//       Serial.print("Nhan duoc: \"");
+//       Serial.print(tinHieuESP);
+//       Serial.println("\"");
+//     // Chi xu ly neu chuoi nhan duoc khong rong
+//     if (tinHieuESP.length() > 0) {
+//       //Xử lý chính 
+//       if (tinHieuESP == "ON") {
+//           Serial.println("-> Lenh ON: He thong san sang.");
+//           heThongOn = true;
+//         }
+//       } else if (tinHieuESP == "OFF") {
+//             heThongOn = false;
+//             cheDoL = cheDoX = false;
+//             bangTaiDung();
+//       } else if (tinHieuESP == "RESET") {
+//             daDiChuyenVaoA1 = daDiChuyenVaoA2 = daDiChuyenVaoB1 = daDiChuyenVaoB2 = false;
+//             daDiChuyenVaoC1 = daDiChuyenVaoC2 = daDiChuyenRaA1 = daDiChuyenRaA2 = false;
+//             daDiChuyenRaB1 = daDiChuyenRaB2 = daDiChuyenRaC1 = daDiChuyenRaC2 = false;
+//             nhacHangRa = traHangXong = false;
+//             daChayBangTaiThuan = daChayBangTaiNghich = daChayBangTaiDung = gatHangXong = false;
+//             heThongOn = false;
+//             cheDoL = cheDoX = false;
+
+//             bangTaiDung();
+//             veHome = false;
+//             home();
+//             Serial.println("-> RESET hoan tat, da ve HOME.");
+//         Serial.println(" -> Nhan lenh RESET");
+//       } else if (heThongOn) {
+//             if (tinHieuESP == "L") {
+//                 Serial.println("-> Chon che do Luu kho.");
+//                 cheDoL = true; cheDoX = false;
+//             } else if (tinHieuESP == "X") {
+//                 Serial.println("-> Chon che do Xuat kho.");
+//                 cheDoX = true; cheDoL = false;
+
+//             } else if (cheDoL) {
+//                 if (tinHieuESP == "A") {
+//                     Serial.println("-> Che do L: Lenh A.");
+//                     xuLyA_L();
+//                 } else if (tinHieuESP == "B") {
+//                     Serial.println("-> Che do L: Lenh B chua lap trinh.");
+//                 } else if (tinHieuESP == "C") {
+//                     Serial.println("-> Che do L: Lenh C chua lap trinh.");
+//                 } else if (tinHieuESP == "SAI") {
+//                     Serial.println("-> Che do L: Lenh SAI chua lap trinh.");
+//                 } else {
+//                     Serial.println("-> Che do L: Lenh khong hop le.");
+//                 }
+//             } else if (cheDoX) {
+//                 if (tinHieuESP == "A1") {
+//                     Serial.println("-> Che do X: Di chuyen vao A1.");
+//                     home();
+//                     dichuyenraA1();
+//                     traHang();
+//                     home();
+//                 } else if (tinHieuESP == "A2") {
+//                     Serial.println("-> Che do X: Di chuyen vao A2.");
+//                     diChuyenVaoA2();
+//                 } else if (tinHieuESP == "B1") {
+//                     Serial.println("-> Che do X: Di chuyen vao B1.");
+//                     diChuyenVaoB1();
+//                 } else if (tinHieuESP == "B2") {
+//                     Serial.println("-> Che do X: Di chuyen vao B2.");
+//                     diChuyenVaoB2();
+//                 } else if (tinHieuESP == "C1") {
+//                     Serial.println("-> Che do X: Di chuyen vao C1.");
+//                     diChuyenVaoC1();
+//                 } else if (tinHieuESP == "C2") {
+//                     Serial.println("-> Che do X: Di chuyen vao C2.");
+//                     diChuyenVaoC2();
+//                 } else {
+//                     Serial.println("-> Che do X: Lenh khong hop le.");
+//                 }
+
+//             }else {
+//                      Serial.println(" -> Lenh khong xac dinh");
+//       }
+//     }
+//   }
+}
