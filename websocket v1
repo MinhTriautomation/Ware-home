@@ -41,6 +41,30 @@ const char* SOURCE_ARDUINO  = "arduino";
 
 #define SERIAL_BAUD_RATE 115200
 
+// ==========================================
+// Các biến trạng thái hệ thống
+// ==========================================
+enum SystemMode {
+    MODE_OFF,
+    MODE_ON,
+    MODE_LUU_KHO,
+    MODE_XUAT_KHO,
+    MODE_RESET
+};
+
+SystemMode currentSystemMode = MODE_OFF; // Chế độ hệ thống hiện tại (OFF/ON/LUU_KHO/XUAT_KHO/RESET)
+
+// Trạng thái cờ nhớ của từng vị trí (true = đã có hàng, false = trống)
+bool daVaoA1 = false;
+bool daVaoA2 = false;
+bool daVaoB1 = false;
+bool daVaoB2 = false;
+bool daVaoC1 = false;
+bool daVaoC2 = false;
+
+// ==========================================
+// HTML Content (No changes, just for completeness)
+// ==========================================
 const char trangHtml[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="vi">
@@ -158,6 +182,13 @@ const char trangHtml[] PROGMEM = R"rawliteral(
     </div>
 
     <script>
+        const ACTION_LUU_KHO = "luu_kho";
+        const ACTION_XUAT_KHO = "xuat_kho";
+        const ACTION_LOCATION = "location";
+        const ACTION_OFF      = "off";
+        const ACTION_ON       = "on";
+        const ACTION_RESET    = "reset";
+
         const gateway = `ws://${window.location.hostname}/ws`;
         let websocket;
         const statusIndicator = document.getElementById('status-indicator');
@@ -315,6 +346,71 @@ void setupWebServer();
 void setupSerialPorts();
 void checkArduinoInput();
 
+// ==========================================
+// Các hàm điều khiển chuyển động (mô phỏng)
+// ==========================================
+void dichuyenvaoA1() {
+    Serial.println("DI CHUYEN VAO A1");
+    updateLCD("Luu kho A1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoA2() {
+    Serial.println("DI CHUYEN VAO A2");
+    updateLCD("Luu kho A2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoB1() {
+    Serial.println("DI CHUYEN VAO B1");
+    updateLCD("Luu kho B1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoB2() {
+    Serial.println("DI CHUYEN VAO B2");
+    updateLCD("Luu kho B2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoC1() {
+    Serial.println("DI CHUYEN VAO C1");
+    updateLCD("Luu kho C1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoC2() {
+    Serial.println("DI CHUYEN VAO C2");
+    updateLCD("Luu kho C2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+
+void dichuyenraA1() {
+    Serial.println("DI CHUYEN RA A1");
+    updateLCD("Xuat kho A1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraA2() {
+    Serial.println("DI CHUYEN RA A2");
+    updateLCD("Xuat kho A2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraB1() {
+    Serial.println("DI CHUYEN RA B1");
+    updateLCD("Xuat kho B1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraB2() {
+    Serial.println("DI CHUYEN RA B2");
+    updateLCD("Xuat kho B2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraC1() {
+    Serial.println("DI CHUYEN RA C1");
+    updateLCD("Xuat kho C1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraC2() {
+    Serial.println("DI CHUYEN RA C2");
+    updateLCD("Xuat kho C2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+
 void setup() {
     setupSerialPorts();
 
@@ -341,6 +437,7 @@ void setup() {
     Serial.print("Access Point SSID: "); Serial.println(AP_SSID);
     Serial.print("Web Server IP: "); Serial.println(WiFi.softAPIP());
     updateLCD("AP Mode OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15));
+    executeAction(ACTION_OFF, "", SOURCE_ESP32); // Bắt đầu ở chế độ OFF
 }
 
 void loop() {
@@ -376,19 +473,10 @@ void checkArduinoInput() {
 
                     Serial.printf("  Phan tich lenh tu Arduino: Action='%s', Value='%s'\n", action, value.c_str());
 
-                    if (strcmp(action, "location") == 0) {
-                        broadcastStatus("location_from_arduino", value, SOURCE_ARDUINO);
-                        updateLCD("Hang vao:", value);
-                    } else if (strcmp(action, "location_cleared") == 0) {
-                        broadcastStatus("location_cleared_from_arduino", value, SOURCE_ARDUINO);
-                        updateLCD("Hang ra:", value);
-                    } else if (strcmp(action, "status") == 0) {
-                        broadcastStatus("arduino_status", value, SOURCE_ARDUINO);
-                        updateLCD("Arduino:", value);
-                    } else {
-                        Serial.print("  Action Arduino khong ro: "); Serial.println(action);
-                        broadcastStatus("arduino_unknown_action", String(action), SOURCE_ARDUINO);
-                    }
+                    // Arduino có thể gửi lệnh trực tiếp như các nút trên web
+                    // Hoặc các thông báo trạng thái
+                    executeAction(action, value, SOURCE_ARDUINO);
+
                 } else {
                     Serial.print("  Loi phan tich JSON tu Arduino: "); Serial.println(error.c_str());
                     broadcastStatus("error_arduino_json", jsonPart, SOURCE_ARDUINO);
@@ -421,6 +509,14 @@ void broadcastStatus(const char* action, String value, const char* source) {
         doc["value"] = value;
     }
     doc["source"] = source;
+    doc["currentMode"] = (int)currentSystemMode; // Thêm trạng thái chế độ hiện tại
+    // Thêm trạng thái các vị trí để Web UI có thể hiển thị
+    doc["A1_status"] = daVaoA1;
+    doc["A2_status"] = daVaoA2;
+    doc["B1_status"] = daVaoB1;
+    doc["B2_status"] = daVaoB2;
+    doc["C1_status"] = daVaoC1;
+    doc["C2_status"] = daVaoC2;
 
     String jsonString;
     serializeJson(doc, jsonString);
@@ -438,43 +534,207 @@ void executeAction(const char* action, String value, const char* source) {
     Serial.printf("Thuc hien Action: '%s', Value: '%s', Nguon: '%s'\n", action, value.c_str(), source);
 
     if (strcmp(action, ACTION_ON) == 0) {
-        digitalWrite(LUU_KHO_PIN, HIGH);
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: ON", source);
-        sendSerialCommand("ON");
+        if (currentSystemMode != MODE_ON) { // Chỉ chuyển nếu chưa ở ON
+            currentSystemMode = MODE_ON;
+            digitalWrite(LUU_KHO_PIN, LOW);
+            digitalWrite(XUAT_KHO_PIN, LOW);
+            updateLCD("Mode: ON", source);
+            sendSerialCommand("MODE_ON");
+            broadcastStatus(ACTION_ON, "", source);
+        }
     } else if (strcmp(action, ACTION_OFF) == 0) {
-        digitalWrite(LUU_KHO_PIN, LOW);
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: OFF", source);
-        sendSerialCommand("OFF");
+        if (currentSystemMode != MODE_OFF) { // Chỉ chuyển nếu chưa ở OFF
+            currentSystemMode = MODE_OFF;
+            digitalWrite(LUU_KHO_PIN, LOW);
+            digitalWrite(XUAT_KHO_PIN, LOW);
+            updateLCD("Mode: OFF", "Da dung");
+            sendSerialCommand("MODE_OFF");
+            broadcastStatus(ACTION_OFF, "", source);
+        }
     } else if (strcmp(action, ACTION_RESET) == 0) {
+        currentSystemMode = MODE_RESET; // Tạm thời đặt về RESET
         digitalWrite(LUU_KHO_PIN, LOW);
         digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: RESET", source);
-        sendSerialCommand("RESET");
-    } else if (strcmp(action, ACTION_LUU_KHO) == 0) {
-        digitalWrite(LUU_KHO_PIN, HIGH);
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Che do: LUU KHO", source);
-        sendSerialCommand("L");
-    } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
-        digitalWrite(XUAT_KHO_PIN, HIGH);
-        digitalWrite(LUU_KHO_PIN, LOW);
-        updateLCD("Che do: XUAT KHO", source);
-        sendSerialCommand("X");
-    } else if (strcmp(action, ACTION_LOCATION) == 0) {
-        if (value != "") {
-            updateLCD("Vi tri:", value);
-            sendSerialCommand(value.c_str());
+        daVaoA1 = false;
+        daVaoA2 = false;
+        daVaoB1 = false;
+        daVaoB2 = false;
+        daVaoC1 = false;
+        daVaoC2 = false;
+        updateLCD("He thong: RESET", "San sang");
+        sendSerialCommand("MODE_RESET");
+        currentSystemMode = MODE_OFF; // Sau reset, chuyển về OFF
+        broadcastStatus(ACTION_RESET, "", source);
+    } else if (currentSystemMode == MODE_ON || currentSystemMode == MODE_LUU_KHO || currentSystemMode == MODE_XUAT_KHO) {
+        // Chỉ xử lý các lệnh L/X/Location khi hệ thống đang ở chế độ ON hoặc L/X
+        if (strcmp(action, ACTION_LUU_KHO) == 0) {
+            if (currentSystemMode != MODE_LUU_KHO) {
+                currentSystemMode = MODE_LUU_KHO;
+                digitalWrite(LUU_KHO_PIN, HIGH);
+                digitalWrite(XUAT_KHO_PIN, LOW);
+                updateLCD("Che do: LUU KHO", source);
+                sendSerialCommand("MODE_L");
+                broadcastStatus(ACTION_LUU_KHO, "", source);
+            }
+        } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
+            if (currentSystemMode != MODE_XUAT_KHO) {
+                currentSystemMode = MODE_XUAT_KHO;
+                digitalWrite(XUAT_KHO_PIN, HIGH);
+                digitalWrite(LUU_KHO_PIN, LOW);
+                updateLCD("Che do: XUAT KHO", source);
+                sendSerialCommand("MODE_X");
+                broadcastStatus(ACTION_XUAT_KHO, "", source);
+            }
+        } else if (strcmp(action, ACTION_LOCATION) == 0) {
+            if (value != "") {
+                if (currentSystemMode == MODE_LUU_KHO) {
+                    // Logic cho chế độ LƯU KHO
+                    if (value == "A" || value == "A1" || value == "A2") { // Nhận tín hiệu A (hoặc A1/A2 cụ thể)
+                        if (!daVaoA1) {
+                            dichuyenvaoA1();
+                            daVaoA1 = true;
+                            updateLCD("Da luu:", "A1");
+                            broadcastStatus(ACTION_LOCATION, "A1", source);
+                        } else if (!daVaoA2) {
+                            dichuyenvaoA2();
+                            daVaoA2 = true;
+                            updateLCD("Da luu:", "A2");
+                            broadcastStatus(ACTION_LOCATION, "A2", source);
+                        } else {
+                            Serial.println("Loi: Khu A da day!");
+                            updateLCD("Khu A da day!", "");
+                            broadcastStatus("error", "Khu A da day!", source);
+                        }
+                    } else if (value == "B" || value == "B1" || value == "B2") { // Tương tự cho B
+                        if (!daVaoB1) {
+                            dichuyenvaoB1();
+                            daVaoB1 = true;
+                            updateLCD("Da luu:", "B1");
+                            broadcastStatus(ACTION_LOCATION, "B1", source);
+                        } else if (!daVaoB2) {
+                            dichuyenvaoB2();
+                            daVaoB2 = true;
+                            updateLCD("Da luu:", "B2");
+                            broadcastStatus(ACTION_LOCATION, "B2", source);
+                        } else {
+                            Serial.println("Loi: Khu B da day!");
+                            updateLCD("Khu B da day!", "");
+                            broadcastStatus("error", "Khu B da day!", source);
+                        }
+                    } else if (value == "C" || value == "C1" || value == "C2") { // Tương tự cho C
+                        if (!daVaoC1) {
+                            dichuyenvaoC1();
+                            daVaoC1 = true;
+                            updateLCD("Da luu:", "C1");
+                            broadcastStatus(ACTION_LOCATION, "C1", source);
+                        } else if (!daVaoC2) {
+                            dichuyenvaoC2();
+                            daVaoC2 = true;
+                            updateLCD("Da luu:", "C2");
+                            broadcastStatus(ACTION_LOCATION, "C2", source);
+                        } else {
+                            Serial.println("Loi: Khu C da day!");
+                            updateLCD("Khu C da day!", "");
+                            broadcastStatus("error", "Khu C da day!", source);
+                        }
+                    } else {
+                        Serial.print("Loi: Vi tri luu kho khong hop le: "); Serial.println(value);
+                        updateLCD("Loi V.tri luu", value);
+                        broadcastStatus("error", "Vi tri luu kho khong hop le", source);
+                    }
+                } else if (currentSystemMode == MODE_XUAT_KHO) {
+                    // Logic cho chế độ XUẤT KHO
+                    if (value == "A1") {
+                        if (daVaoA1) {
+                            dichuyenraA1();
+                            daVaoA1 = false;
+                            updateLCD("Da xuat:", "A1");
+                            broadcastStatus(ACTION_LOCATION, "A1", source);
+                        } else {
+                            Serial.println("Loi: A1 dang trong, khong co gi de xuat.");
+                            updateLCD("A1 dang trong", "");
+                            broadcastStatus("error", "A1 dang trong", source);
+                        }
+                    } else if (value == "A2") {
+                        if (daVaoA2) {
+                            dichuyenraA2();
+                            daVaoA2 = false;
+                            updateLCD("Da xuat:", "A2");
+                            broadcastStatus(ACTION_LOCATION, "A2", source);
+                        } else {
+                            Serial.println("Loi: A2 dang trong, khong co gi de xuat.");
+                            updateLCD("A2 dang trong", "");
+                            broadcastStatus("error", "A2 dang trong", source);
+                        }
+                    } else if (value == "B1") {
+                        if (daVaoB1) {
+                            dichuyenraB1();
+                            daVaoB1 = false;
+                            updateLCD("Da xuat:", "B1");
+                            broadcastStatus(ACTION_LOCATION, "B1", source);
+                        } else {
+                            Serial.println("Loi: B1 dang trong, khong co gi de xuat.");
+                            updateLCD("B1 dang trong", "");
+                            broadcastStatus("error", "B1 dang trong", source);
+                        }
+                    } else if (value == "B2") {
+                        if (daVaoB2) {
+                            dichuyenraB2();
+                            daVaoB2 = false;
+                            updateLCD("Da xuat:", "B2");
+                            broadcastStatus(ACTION_LOCATION, "B2", source);
+                        } else {
+                            Serial.println("Loi: B2 dang trong, khong co gi de xuat.");
+                            updateLCD("B2 dang trong", "");
+                            broadcastStatus("error", "B2 dang trong", source);
+                        }
+                    } else if (value == "C1") {
+                        if (daVaoC1) {
+                            dichuyenraC1();
+                            daVaoC1 = false;
+                            updateLCD("Da xuat:", "C1");
+                            broadcastStatus(ACTION_LOCATION, "C1", source);
+                        } else {
+                            Serial.println("Loi: C1 dang trong, khong co gi de xuat.");
+                            updateLCD("C1 dang trong", "");
+                            broadcastStatus("error", "C1 dang trong", source);
+                        }
+                    } else if (value == "C2") {
+                        if (daVaoC2) {
+                            dichuyenraC2();
+                            daVaoC2 = false;
+                            updateLCD("Da xuat:", "C2");
+                            broadcastStatus(ACTION_LOCATION, "C2", source);
+                        } else {
+                            Serial.println("Loi: C2 dang trong, khong co gi de xuat.");
+                            updateLCD("C2 dang trong", "");
+                            broadcastStatus("error", "C2 dang trong", source);
+                        }
+                    } else {
+                        Serial.print("Loi: Vi tri xuat kho khong hop le: "); Serial.println(value);
+                        updateLCD("Loi V.tri xuat", value);
+                        broadcastStatus("error", "Vi tri xuat kho khong hop le", source);
+                    }
+                } else {
+                    Serial.println("Loi: Khong o che do LUU/XUAT KHO de chon vi tri.");
+                    updateLCD("Chua chon che do", "Luu/Xuat kho");
+                    broadcastStatus("error", "Chua chon che do luu/xuat kho", source);
+                }
+            } else {
+                Serial.println("Loi: Action 'location' thieu gia tri 'value'.");
+                updateLCD("Loi:", "Thieu V.tri");
+            }
         } else {
-            Serial.println("Loi: Action 'location' thieu gia tri 'value'.");
-            updateLCD("Loi:", "Thieu V.tri");
+            Serial.print("Loi: Action khong duoc ho tro trong che do hien tai: "); Serial.println(action);
+            updateLCD("Action khong ro", action);
+            broadcastStatus("error", String("Unknown action in current mode: ") + action, source);
         }
     } else {
-        Serial.print("Loi: Action khong duoc ho tro: "); Serial.println(action);
-        updateLCD("Action khong ro", action);
+        // Các lệnh không thuộc L/X chỉ được thực hiện ở chế độ ON/OFF/RESET
+        Serial.printf("Loi: He thong dang o che do OFF. Khong the thuc hien '%s'.\n", action);
+        updateLCD("He thong OFF", "An ON de bat");
+        broadcastStatus("error", "System OFF. Press ON.", source);
     }
-    broadcastStatus(action, value, source);
 }
 
 void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
@@ -483,6 +743,8 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
     switch (type) {
         case WS_EVT_CONNECT:
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            // Gửi trạng thái hiện tại cho client mới kết nối
+            broadcastStatus("current_state", "connected", SOURCE_ESP32);
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
