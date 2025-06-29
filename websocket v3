@@ -13,46 +13,58 @@
 #include <ArduinoJson.h>
 #include <Arduino.h>
 
-// --- WiFi Access Point Configuration ---
 const char *AP_SSID = "ESP32_KHO_THONG_MINH";
-const char *AP_PASSWORD = ""; // Để trống nếu không cần mật khẩu
+const char *AP_PASSWORD = "";
 
-// --- LCD Configuration ---
 const int LCD_ADDRESS = 0x27;
 const int LCD_COLS = 16;
 const int LCD_ROWS = 2;
 
-// --- Output Pins (Connected to actuators/indicators) ---
-const int LUU_KHO_PIN = 12; // Ví dụ: Điều khiển relay/motor cho chế độ lưu kho
-const int XUAT_KHO_PIN = 13; // Ví dụ: Điều khiển relay/motor cho chế độ xuất kho
+const int LUU_KHO_PIN = 12;
+const int XUAT_KHO_PIN = 13;
 
-// --- Input Pins (Physical Buttons) ---
-// Sử dụng INPUT_PULLUP nên nối nút bấm giữa chân GPIO và GND
 const int NUT_ON_VATLY_PIN    = 25;
 const int NUT_OFF_VATLY_PIN   = 26;
 const int NUT_RESET_VATLY_PIN = 27;
 
-// --- Action Definitions ---
 const char* ACTION_LUU_KHO = "luu_kho";
 const char* ACTION_XUAT_KHO = "xuat_kho";
-const char* ACTION_LOCATION = "location"; // Hành động chọn vị trí
-const char* ACTION_OFF      = "off";      // Hành động tắt hệ thống (logic)
-const char* ACTION_ON       = "on";       // Hành động bật hệ thống (logic)
-const char* ACTION_RESET    = "reset";    // Hành động reset logic/trạng thái
+const char* ACTION_LOCATION = "location";
+const char* ACTION_OFF      = "off";
+const char* ACTION_ON       = "on";
+const char* ACTION_RESET    = "reset";
 
-// --- Source Definitions (Origin of the command) ---
-const char* SOURCE_PHYSICAL = "physical"; // Từ nút bấm vật lý
-const char* SOURCE_WEB      = "web";      // Từ giao diện web
-const char* SOURCE_ESP32    = "esp32";    // Từ chính ESP32 (ví dụ: khởi động)
-const char* SOURCE_PYTHON   = "python";   // Từ script Python qua Serial
+const char* SOURCE_PHYSICAL = "physical";
+const char* SOURCE_WEB      = "web";
+const char* SOURCE_ESP32    = "esp32";
+const char* SOURCE_ARDUINO  = "arduino";
 
-// --- Serial Port Configuration ---
-#define SERIAL_BAUD_RATE 115200 // Tốc độ cho Serial (Monitor/Python)
-#define SERIAL2_BAUD_RATE 9600  // Tốc độ cho Serial2 (Arduino Uno)
-#define UNO_RX_PIN 16           // ESP32 RX2 connected to Uno TX
-#define UNO_TX_PIN 17           // ESP32 TX2 connected to Uno RX
+#define SERIAL_BAUD_RATE 115200
 
-// --- HTML Page (Stored in PROGMEM) ---
+// ==========================================
+// Các biến trạng thái hệ thống
+// ==========================================
+enum SystemMode {
+    MODE_OFF,
+    MODE_ON,
+    MODE_LUU_KHO,
+    MODE_XUAT_KHO,
+    MODE_RESET
+};
+
+SystemMode currentSystemMode = MODE_OFF; // Chế độ hệ thống hiện tại (OFF/ON/LUU_KHO/XUAT_KHO/RESET)
+
+// Trạng thái cờ nhớ của từng vị trí (true = đã có hàng, false = trống)
+bool daVaoA1 = false;
+bool daVaoA2 = false;
+bool daVaoB1 = false;
+bool daVaoB2 = false;
+bool daVaoC1 = false;
+bool daVaoC2 = false;
+
+// ==========================================
+// HTML Content (No changes, just for completeness)
+// ==========================================
 const char trangHtml[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="vi">
@@ -118,10 +130,10 @@ const char trangHtml[] PROGMEM = R"rawliteral(
                     <div id="btn-off" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="off">OFF</div>
                     <div id="btn-reset" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="reset">RESET</div>
                 </div>
-                 <div class="button-row">
+                   <div class="button-row">
                     <div id="btn-luu-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="luu_kho">LƯU KHO</div>
                     <div id="btn-xuat-kho" class="clickable-item mode-button" onclick="sendWsCommand(this)" data-action="xuat_kho">XUẤT KHO</div>
-                 </div>
+                   </div>
                 <div class="button-row">
                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C2">C2</div>
                     <div class="location-cell clickable-item" onclick="sendWsCommand(this)" data-action="location" data-value="C1">C1</div>
@@ -170,6 +182,13 @@ const char trangHtml[] PROGMEM = R"rawliteral(
     </div>
 
     <script>
+        const ACTION_LUU_KHO = "luu_kho";
+        const ACTION_XUAT_KHO = "xuat_kho";
+        const ACTION_LOCATION = "location";
+        const ACTION_OFF      = "off";
+        const ACTION_ON       = "on";
+        const ACTION_RESET    = "reset";
+
         const gateway = `ws://${window.location.hostname}/ws`;
         let websocket;
         const statusIndicator = document.getElementById('status-indicator');
@@ -215,7 +234,7 @@ const char trangHtml[] PROGMEM = R"rawliteral(
             const sourceTextMap = {
                 'physical': '(Nut vat ly)',
                 'web': '(Web UI)',
-                'python': '(Python)',
+                'arduino': '(Arduino Uno)',
                 'esp32': '(He thong)'
             };
             const sourceText = sourceTextMap[data.source] || '(Khong ro)';
@@ -247,12 +266,22 @@ const char trangHtml[] PROGMEM = R"rawliteral(
             } else if (data.action === ACTION_RESET) {
                 setActiveButton(btnReset);
                 statusMessage = `Mode: RESET`; statusClass = 'idle';
-                clearAllActiveStates(); // Xóa hết trạng thái active khi reset
+                clearAllActiveStates();
             } else if (data.error) {
                 statusMessage = `Loi tu ESP32: ${data.error}`; statusClass = 'error';
             } else if (data.status) {
-                 statusMessage = `Trang thai: ${data.status}`; statusClass = 'info';
-            } else {
+                statusMessage = `Trang thai: ${data.status}`; statusClass = 'info';
+            }
+            else if (data.action === "location_from_arduino" && data.value) {
+                statusMessage = `Arduino: Hang vao ${data.value}`; statusClass = 'info';
+            } else if (data.action === "location_cleared_from_arduino" && data.value) {
+                statusMessage = `Arduino: Hang ra ${data.value}`; statusClass = 'info';
+            } else if (data.action === "arduino_status" && data.value) {
+                statusMessage = `Arduino status: ${data.value}`; statusClass = 'info';
+            } else if (data.action === "arduino_raw_cmd" && data.value) {
+                statusMessage = `Arduino raw cmd: ${data.value}`; statusClass = 'info';
+            }
+            else {
                 console.log("Received unknown data structure from ESP32: ", data);
                 statusMessage = `Unknown: ${JSON.stringify(data)}`; statusClass = 'info';
             }
@@ -263,7 +292,7 @@ const char trangHtml[] PROGMEM = R"rawliteral(
         function updateStatusIndicator(message, statusClass) {
             if (statusIndicator) {
                 statusIndicator.textContent = `Trang thai: ${message}`;
-                statusIndicator.className = ''; // Reset classes
+                statusIndicator.className = '';
                 statusIndicator.classList.add(statusClass);
             }
         }
@@ -279,7 +308,7 @@ const char trangHtml[] PROGMEM = R"rawliteral(
             if (!websocket || websocket.readyState !== WebSocket.OPEN) {
                 console.log("WebSocket not open. Cannot send command.");
                 updateStatusIndicator('Not connected, cannot send command', 'error');
-                initWebSocket(); // Try to reconnect
+                initWebSocket();
                 return;
             }
             const action = element.dataset.action;
@@ -296,20 +325,17 @@ const char trangHtml[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-// --- Global Objects ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 
-// --- Global Variables ---
 int lastButtonStateON = HIGH;
 int lastButtonStateOFF = HIGH;
 int lastButtonStateRESET = HIGH;
 
-// --- Function Declarations ---
 void updateLCD(String line1, String line2 = "");
 void broadcastStatus(const char* action, String value = "", const char* source = SOURCE_ESP32);
-void sendSerialCommand(const char* command); // Sends command to Arduino via Serial2
+void sendSerialCommand(const char* command);
 void executeAction(const char* action, String value = "", const char* source = SOURCE_ESP32);
 void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger);
@@ -317,27 +343,90 @@ void setupPins();
 void setupLCD();
 void setupAP();
 void setupWebServer();
-void setupSerialPorts(); // New function for serial setup
-void checkPythonInput(); // New function to check Serial for Python input
+void setupSerialPorts();
+void checkArduinoInput();
 
-// --- Setup Function ---
+// ==========================================
+// Các hàm điều khiển chuyển động (mô phỏng)
+// ==========================================
+void dichuyenvaoA1() {
+    Serial.println("DI CHUYEN VAO A1");
+    updateLCD("Luu kho A1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoA2() {
+    Serial.println("DI CHUYEN VAO A2");
+    updateLCD("Luu kho A2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoB1() {
+    Serial.println("DI CHUYEN VAO B1");
+    updateLCD("Luu kho B1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoB2() {
+    Serial.println("DI CHUYEN VAO B2");
+    updateLCD("Luu kho B2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoC1() {
+    Serial.println("DI CHUYEN VAO C1");
+    updateLCD("Luu kho C1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenvaoC2() {
+    Serial.println("DI CHUYEN VAO C2");
+    updateLCD("Luu kho C2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+
+void dichuyenraA1() {
+    Serial.println("DI CHUYEN RA A1");
+    updateLCD("Xuat kho A1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraA2() {
+    Serial.println("DI CHUYEN RA A2");
+    updateLCD("Xuat kho A2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraB1() {
+    Serial.println("DI CHUYEN RA B1");
+    updateLCD("Xuat kho B1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraB2() {
+    Serial.println("DI CHUYEN RA B2");
+    updateLCD("Xuat kho B2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraC1() {
+    Serial.println("DI CHUYEN RA C1");
+    updateLCD("Xuat kho C1", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+void dichuyenraC2() {
+    Serial.println("DI CHUYEN RA C2");
+    updateLCD("Xuat kho C2", "");
+    // Thêm code điều khiển động cơ/relay thực tế tại đây
+}
+
 void setup() {
-    setupSerialPorts(); // Initialize Serial and Serial2
+    setupSerialPorts();
 
     Serial.println("\n===================================");
-    Serial.println("   KHOI DONG HE THONG LUU KHO    ");
+    Serial.println("   KHOI DONG HE THONG LUU KHO     ");
     Serial.println("===================================");
-    Serial.println("ESP32 san sang nhan lenh tu Web UI, Nut Bam & Python.");
-    Serial.print("Giao tiep voi Arduino Uno qua Serial2 (TX:");
-    Serial.print(UNO_TX_PIN); Serial.print(", RX:"); Serial.print(UNO_RX_PIN);
-    Serial.print(") @ "); Serial.print(SERIAL2_BAUD_RATE); Serial.println(" bps");
+    Serial.println("ESP32 san sang nhan lenh tu Web UI, Nut Bam & Arduino.");
+    Serial.print("Giao tiep voi Arduino Uno qua Serial (TX0/RX0) @ ");
+    Serial.print(SERIAL_BAUD_RATE); Serial.println(" bps");
+    Serial.println("LUU Y: Khi ket noi Arduino voi TX0/RX0, viec Debug qua Serial Monitor co the bi anh huong.");
 
     setupLCD();
     setupPins();
-    setupAP(); // Setup Access Point AFTER Serial/LCD for debugging messages
-    setupWebServer(); // Setup Web Server and WebSocket
+    setupAP();
+    setupWebServer();
 
-    // mDNS for easy access by name (http://esp32-kho.local)
     if (MDNS.begin("esp32-kho")) {
         Serial.println("mDNS responder started: http://esp32-kho.local");
         MDNS.addService("http", "tcp", 80);
@@ -347,72 +436,63 @@ void setup() {
 
     Serial.print("Access Point SSID: "); Serial.println(AP_SSID);
     Serial.print("Web Server IP: "); Serial.println(WiFi.softAPIP());
-    updateLCD("AP Mode OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15)); // Truncate if IP is too long
+    updateLCD("AP Mode OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15));
+    executeAction(ACTION_OFF, "", SOURCE_ESP32); // Bắt đầu ở chế độ OFF
 }
 
-// --- Main Loop ---
 void loop() {
-    ws.cleanupClients(); // Handle WebSocket connections
+    ws.cleanupClients();
 
     checkPhysicalButtonWithoutDebounce(NUT_ON_VATLY_PIN, lastButtonStateON, ACTION_ON);
     checkPhysicalButtonWithoutDebounce(NUT_OFF_VATLY_PIN, lastButtonStateOFF, ACTION_OFF);
     checkPhysicalButtonWithoutDebounce(NUT_RESET_VATLY_PIN, lastButtonStateRESET, ACTION_RESET);
 
-    checkPythonInput(); // Check for commands from Python via Serial
+    checkArduinoInput();
 }
-
-// --- Function Definitions ---
 
 void setupSerialPorts() {
-    Serial.begin(SERIAL_BAUD_RATE);       // Giao tiếp với Serial Monitor / Python qua USB
-    Serial2.begin(SERIAL2_BAUD_RATE, SERIAL_8N1, UNO_RX_PIN, UNO_TX_PIN); // Giao tiếp với Arduino Uno
-    // TX2 (GPIO 17 on ESP32) connects to RX (Pin 0 or other soft serial RX) on Uno
-    // RX2 (GPIO 16 on ESP32) connects to TX (Pin 1 or other soft serial TX) on Uno
+    Serial.begin(SERIAL_BAUD_RATE);
 }
 
-void checkPythonInput() {
+void checkArduinoInput() {
     if (Serial.available()) {
         String data = Serial.readStringUntil('\n');
-        data.trim(); // Remove leading/trailing whitespace and newline chars
+        data.trim();
 
-        if (data.length() > 0) { // Only process if there's actual data
-            Serial.print("Nhan tu Python [Serial]: '"); Serial.print(data); Serial.println("'");
+        if (data.length() > 0) {
+            Serial.print("Nhan tu Arduino [Serial TX0/RX0]: '"); Serial.print(data); Serial.println("'");
 
-            // Option 1: Directly forward the raw string to Arduino via Serial2
-            Serial.print("--> Dang gui toi Uno [Serial2]: '"); Serial.print(data); Serial.println("'");
-            Serial2.println(data); // Gửi lệnh nhận được từ Python sang Arduino Uno
+            if (data.startsWith("ESP32_CMD:")) {
+                String jsonPart = data.substring(10);
+                DynamicJsonDocument doc(256);
+                DeserializationError error = deserializeJson(doc, jsonPart);
 
-            // Option 2 (More complex): Try to parse the Python command as if it were a web command
-            // This would allow Python to send JSON like {"action":"luu_kho"}
-            // Uncomment the block below and comment out Option 1 if you prefer this
-            /*
-            DynamicJsonDocument doc(256);
-            DeserializationError error = deserializeJson(doc, data);
-            if (!error && doc.containsKey("action")) {
-                 const char* action = doc["action"] | "unknown";
-                 String value = doc["value"].as<String>(); // Get value if present
-                 Serial.printf("   Interpreting Python command as: Action='%s', Value='%s'\n", action, value.c_str());
-                 executeAction(action, value, SOURCE_PYTHON); // Execute the action
+                if (!error && doc.containsKey("action")) {
+                    const char* action = doc["action"] | "unknown";
+                    String value = doc["value"].as<String>();
+
+                    Serial.printf("  Phan tich lenh tu Arduino: Action='%s', Value='%s'\n", action, value.c_str());
+
+                    // Arduino có thể gửi lệnh trực tiếp như các nút trên web
+                    // Hoặc các thông báo trạng thái
+                    executeAction(action, value, SOURCE_ARDUINO);
+
+                } else {
+                    Serial.print("  Loi phan tich JSON tu Arduino: "); Serial.println(error.c_str());
+                    broadcastStatus("error_arduino_json", jsonPart, SOURCE_ARDUINO);
+                }
             } else {
-                 // If not valid JSON or doesn't fit the expected format, maybe just forward?
-                 Serial.println("   Khong phai JSON hop le hoac thieu 'action'. Gui truc tiep toi Uno.");
-                 Serial2.println(data); // Forward raw data if parsing fails
-                 broadcastStatus("python_raw", data, SOURCE_PYTHON); // Inform web UI about raw data
+                Serial.print("  Nhan chuoi don gian tu Arduino: "); Serial.println(data);
+                broadcastStatus("arduino_raw_cmd", data, SOURCE_ARDUINO);
+                updateLCD("Arduino:", data);
             }
-            */
-
-            // Inform the web UI that a command was received from Python (if using Option 1)
-            // We might need a specific action type for raw Python commands if not parsing JSON
-             broadcastStatus("python_cmd_received", data, SOURCE_PYTHON);
         }
     }
 }
 
-
 void updateLCD(String line1, String line2) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    // Truncate strings to fit LCD columns
     String printLine1 = line1.substring(0, min((int)line1.length(), LCD_COLS));
     lcd.print(printLine1);
     if (line2 != "") {
@@ -423,86 +503,248 @@ void updateLCD(String line1, String line2) {
 }
 
 void broadcastStatus(const char* action, String value, const char* source) {
-    DynamicJsonDocument doc(256); // Increased size slightly for safety
+    DynamicJsonDocument doc(256);
     doc["action"] = action;
     if (value != "") {
         doc["value"] = value;
     }
-    doc["source"] = source; // Indicate where the action originated
+    doc["source"] = source;
+    doc["currentMode"] = (int)currentSystemMode; // Thêm trạng thái chế độ hiện tại
+    // Thêm trạng thái các vị trí để Web UI có thể hiển thị
+    doc["A1_status"] = daVaoA1;
+    doc["A2_status"] = daVaoA2;
+    doc["B1_status"] = daVaoB1;
+    doc["B2_status"] = daVaoB2;
+    doc["C1_status"] = daVaoC1;
+    doc["C2_status"] = daVaoC2;
 
     String jsonString;
     serializeJson(doc, jsonString);
 
-    // Serial.print("Broadcasting WS: "); Serial.println(jsonString); // Debugging WS messages
-    ws.textAll(jsonString); // Send JSON status to all connected WebSocket clients
+    ws.textAll(jsonString);
 }
 
-// *** MODIFIED: Sends command to Arduino via Serial2 ***
 void sendSerialCommand(const char* command) {
-    Serial.print("Gui lenh toi Arduino [Serial2]: ");
+    Serial.print("Gui lenh toi Arduino [Serial TX0/RX0]: ");
     Serial.println(command);
-    Serial2.println(command); // Gửi lệnh qua Serial2 tới Arduino Uno
+    Serial.println(command);
 }
 
-// Executes the action based on input from Web, Physical button, or potentially Python
 void executeAction(const char* action, String value, const char* source) {
     Serial.printf("Thuc hien Action: '%s', Value: '%s', Nguon: '%s'\n", action, value.c_str(), source);
 
     if (strcmp(action, ACTION_ON) == 0) {
-        digitalWrite(LUU_KHO_PIN, HIGH); // Example logic, adjust as needed
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: ON", source);
-        sendSerialCommand("ON"); // Send standardized command to Arduino
+        if (currentSystemMode != MODE_ON) { // Chỉ chuyển nếu chưa ở ON
+            currentSystemMode = MODE_ON;
+            digitalWrite(LUU_KHO_PIN, LOW);
+            digitalWrite(XUAT_KHO_PIN, LOW);
+            updateLCD("Mode: ON", source);
+            sendSerialCommand("MODE_ON");
+            broadcastStatus(ACTION_ON, "", source);
+        }
     } else if (strcmp(action, ACTION_OFF) == 0) {
-        digitalWrite(LUU_KHO_PIN, LOW);
-        digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: OFF", source);
-        sendSerialCommand("OFF");
+        if (currentSystemMode != MODE_OFF) { // Chỉ chuyển nếu chưa ở OFF
+            currentSystemMode = MODE_OFF;
+            digitalWrite(LUU_KHO_PIN, LOW);
+            digitalWrite(XUAT_KHO_PIN, LOW);
+            updateLCD("Mode: OFF", "Da dung");
+            sendSerialCommand("MODE_OFF");
+            broadcastStatus(ACTION_OFF, "", source);
+        }
     } else if (strcmp(action, ACTION_RESET) == 0) {
+        currentSystemMode = MODE_RESET; // Tạm thời đặt về RESET
         digitalWrite(LUU_KHO_PIN, LOW);
         digitalWrite(XUAT_KHO_PIN, LOW);
-        updateLCD("Mode: RESET", source);
-        sendSerialCommand("RESET");
-         // Reset might require additional logic specific to your system
-    } else if (strcmp(action, ACTION_LUU_KHO) == 0) {
-        digitalWrite(LUU_KHO_PIN, HIGH); // Turn on Lưu Kho indicator/actuator
-        digitalWrite(XUAT_KHO_PIN, LOW);  // Turn off Xuất Kho indicator/actuator
-        updateLCD("Che do: LUU KHO", source);
-        sendSerialCommand("L"); // Send 'L' command to Arduino
-    } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
-        digitalWrite(XUAT_KHO_PIN, HIGH); // Turn on Xuất Kho indicator/actuator
-        digitalWrite(LUU_KHO_PIN, LOW);  // Turn off Lưu Kho indicator/actuator
-        updateLCD("Che do: XUAT KHO", source);
-        sendSerialCommand("X"); // Send 'X' command to Arduino
-    } else if (strcmp(action, ACTION_LOCATION) == 0) {
-        if (value != "") {
-            updateLCD("Vi tri:", value);
-            sendSerialCommand(value.c_str()); // Send location code (e.g., "A1") to Arduino
+        daVaoA1 = false;
+        daVaoA2 = false;
+        daVaoB1 = false;
+        daVaoB2 = false;
+        daVaoC1 = false;
+        daVaoC2 = false;
+        updateLCD("He thong: RESET", "San sang");
+        sendSerialCommand("MODE_RESET");
+        currentSystemMode = MODE_OFF; // Sau reset, chuyển về OFF
+        broadcastStatus(ACTION_RESET, "", source);
+    } else if (currentSystemMode == MODE_ON || currentSystemMode == MODE_LUU_KHO || currentSystemMode == MODE_XUAT_KHO) {
+        // Chỉ xử lý các lệnh L/X/Location khi hệ thống đang ở chế độ ON hoặc L/X
+        if (strcmp(action, ACTION_LUU_KHO) == 0) {
+            if (currentSystemMode != MODE_LUU_KHO) {
+                currentSystemMode = MODE_LUU_KHO;
+                digitalWrite(LUU_KHO_PIN, HIGH);
+                digitalWrite(XUAT_KHO_PIN, LOW);
+                updateLCD("Che do: LUU KHO", source);
+                sendSerialCommand("MODE_L");
+                broadcastStatus(ACTION_LUU_KHO, "", source);
+            }
+        } else if (strcmp(action, ACTION_XUAT_KHO) == 0) {
+            if (currentSystemMode != MODE_XUAT_KHO) {
+                currentSystemMode = MODE_XUAT_KHO;
+                digitalWrite(XUAT_KHO_PIN, HIGH);
+                digitalWrite(LUU_KHO_PIN, LOW);
+                updateLCD("Che do: XUAT KHO", source);
+                sendSerialCommand("MODE_X");
+                broadcastStatus(ACTION_XUAT_KHO, "", source);
+            }
+        } else if (strcmp(action, ACTION_LOCATION) == 0) {
+            if (value != "") {
+                if (currentSystemMode == MODE_LUU_KHO) {
+                    // Logic cho chế độ LƯU KHO
+                    if (value == "A" || value == "A1" || value == "A2") { // Nhận tín hiệu A (hoặc A1/A2 cụ thể)
+                        if (!daVaoA1) {
+                            dichuyenvaoA1();
+                            daVaoA1 = true;
+                            updateLCD("Da luu:", "A1");
+                            broadcastStatus(ACTION_LOCATION, "A1", source);
+                        } else if (!daVaoA2) {
+                            dichuyenvaoA2();
+                            daVaoA2 = true;
+                            updateLCD("Da luu:", "A2");
+                            broadcastStatus(ACTION_LOCATION, "A2", source);
+                        } else {
+                            Serial.println("Loi: Khu A da day!");
+                            updateLCD("Khu A da day!", "");
+                            broadcastStatus("error", "Khu A da day!", source);
+                        }
+                    } else if (value == "B" || value == "B1" || value == "B2") { // Tương tự cho B
+                        if (!daVaoB1) {
+                            dichuyenvaoB1();
+                            daVaoB1 = true;
+                            updateLCD("Da luu:", "B1");
+                            broadcastStatus(ACTION_LOCATION, "B1", source);
+                        } else if (!daVaoB2) {
+                            dichuyenvaoB2();
+                            daVaoB2 = true;
+                            updateLCD("Da luu:", "B2");
+                            broadcastStatus(ACTION_LOCATION, "B2", source);
+                        } else {
+                            Serial.println("Loi: Khu B da day!");
+                            updateLCD("Khu B da day!", "");
+                            broadcastStatus("error", "Khu B da day!", source);
+                        }
+                    } else if (value == "C" || value == "C1" || value == "C2") { // Tương tự cho C
+                        if (!daVaoC1) {
+                            dichuyenvaoC1();
+                            daVaoC1 = true;
+                            updateLCD("Da luu:", "C1");
+                            broadcastStatus(ACTION_LOCATION, "C1", source);
+                        } else if (!daVaoC2) {
+                            dichuyenvaoC2();
+                            daVaoC2 = true;
+                            updateLCD("Da luu:", "C2");
+                            broadcastStatus(ACTION_LOCATION, "C2", source);
+                        } else {
+                            Serial.println("Loi: Khu C da day!");
+                            updateLCD("Khu C da day!", "");
+                            broadcastStatus("error", "Khu C da day!", source);
+                        }
+                    } else {
+                        Serial.print("Loi: Vi tri luu kho khong hop le: "); Serial.println(value);
+                        updateLCD("Loi V.tri luu", value);
+                        broadcastStatus("error", "Vi tri luu kho khong hop le", source);
+                    }
+                } else if (currentSystemMode == MODE_XUAT_KHO) {
+                    // Logic cho chế độ XUẤT KHO
+                    if (value == "A1") {
+                        if (daVaoA1) {
+                            dichuyenraA1();
+                            daVaoA1 = false;
+                            updateLCD("Da xuat:", "A1");
+                            broadcastStatus(ACTION_LOCATION, "A1", source);
+                        } else {
+                            Serial.println("Loi: A1 dang trong, khong co gi de xuat.");
+                            updateLCD("A1 dang trong", "");
+                            broadcastStatus("error", "A1 dang trong", source);
+                        }
+                    } else if (value == "A2") {
+                        if (daVaoA2) {
+                            dichuyenraA2();
+                            daVaoA2 = false;
+                            updateLCD("Da xuat:", "A2");
+                            broadcastStatus(ACTION_LOCATION, "A2", source);
+                        } else {
+                            Serial.println("Loi: A2 dang trong, khong co gi de xuat.");
+                            updateLCD("A2 dang trong", "");
+                            broadcastStatus("error", "A2 dang trong", source);
+                        }
+                    } else if (value == "B1") {
+                        if (daVaoB1) {
+                            dichuyenraB1();
+                            daVaoB1 = false;
+                            updateLCD("Da xuat:", "B1");
+                            broadcastStatus(ACTION_LOCATION, "B1", source);
+                        } else {
+                            Serial.println("Loi: B1 dang trong, khong co gi de xuat.");
+                            updateLCD("B1 dang trong", "");
+                            broadcastStatus("error", "B1 dang trong", source);
+                        }
+                    } else if (value == "B2") {
+                        if (daVaoB2) {
+                            dichuyenraB2();
+                            daVaoB2 = false;
+                            updateLCD("Da xuat:", "B2");
+                            broadcastStatus(ACTION_LOCATION, "B2", source);
+                        } else {
+                            Serial.println("Loi: B2 dang trong, khong co gi de xuat.");
+                            updateLCD("B2 dang trong", "");
+                            broadcastStatus("error", "B2 dang trong", source);
+                        }
+                    } else if (value == "C1") {
+                        if (daVaoC1) {
+                            dichuyenraC1();
+                            daVaoC1 = false;
+                            updateLCD("Da xuat:", "C1");
+                            broadcastStatus(ACTION_LOCATION, "C1", source);
+                        } else {
+                            Serial.println("Loi: C1 dang trong, khong co gi de xuat.");
+                            updateLCD("C1 dang trong", "");
+                            broadcastStatus("error", "C1 dang trong", source);
+                        }
+                    } else if (value == "C2") {
+                        if (daVaoC2) {
+                            dichuyenraC2();
+                            daVaoC2 = false;
+                            updateLCD("Da xuat:", "C2");
+                            broadcastStatus(ACTION_LOCATION, "C2", source);
+                        } else {
+                            Serial.println("Loi: C2 dang trong, khong co gi de xuat.");
+                            updateLCD("C2 dang trong", "");
+                            broadcastStatus("error", "C2 dang trong", source);
+                        }
+                    } else {
+                        Serial.print("Loi: Vi tri xuat kho khong hop le: "); Serial.println(value);
+                        updateLCD("Loi V.tri xuat", value);
+                        broadcastStatus("error", "Vi tri xuat kho khong hop le", source);
+                    }
+                } else {
+                    Serial.println("Loi: Khong o che do LUU/XUAT KHO de chon vi tri.");
+                    updateLCD("Chua chon che do", "Luu/Xuat kho");
+                    broadcastStatus("error", "Chua chon che do luu/xuat kho", source);
+                }
+            } else {
+                Serial.println("Loi: Action 'location' thieu gia tri 'value'.");
+                updateLCD("Loi:", "Thieu V.tri");
+            }
         } else {
-            Serial.println("Loi: Action 'location' thieu gia tri 'value'.");
-            updateLCD("Loi:", "Thieu V.tri");
-             // Optionally send an error status back via WebSocket
-             // broadcastStatus("error", "Missing location value", source);
+            Serial.print("Loi: Action khong duoc ho tro trong che do hien tai: "); Serial.println(action);
+            updateLCD("Action khong ro", action);
+            broadcastStatus("error", String("Unknown action in current mode: ") + action, source);
         }
     } else {
-        Serial.print("Loi: Action khong duoc ho tro: "); Serial.println(action);
-        updateLCD("Action khong ro", action);
-        // Optionally broadcast an error for unrecognized actions
-        // broadcastStatus("error", String("Unknown action: ") + action, source);
+        // Các lệnh không thuộc L/X chỉ được thực hiện ở chế độ ON/OFF/RESET
+        Serial.printf("Loi: He thong dang o che do OFF. Khong the thuc hien '%s'.\n", action);
+        updateLCD("He thong OFF", "An ON de bat");
+        broadcastStatus("error", "System OFF. Press ON.", source);
     }
-
-    // Always broadcast the executed action and its source back to the web UI
-    broadcastStatus(action, value, source);
 }
 
 void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
-                          void *arg, uint8_t *data, size_t len)
+                           void *arg, uint8_t *data, size_t len)
 {
     switch (type) {
         case WS_EVT_CONNECT:
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-             // Optionally send current status to newly connected client
-             // broadcastStatus(currentAction, currentValue, SOURCE_ESP32); // You'd need to store current state
+            // Gửi trạng thái hiện tại cho client mới kết nối
+            broadcastStatus("current_state", "connected", SOURCE_ESP32);
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -510,17 +752,16 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
         case WS_EVT_DATA: {
             AwsFrameInfo *info = (AwsFrameInfo*)arg;
             if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-                data[len] = 0; // Null-terminate the received data
+                data[len] = 0;
                 String jsonStr = (char*)data;
                 Serial.print("Nhan WS data: "); Serial.println(jsonStr);
 
-                DynamicJsonDocument doc(256); // JSON buffer
+                DynamicJsonDocument doc(256);
                 DeserializationError error = deserializeJson(doc, jsonStr);
 
                 if (error) {
                     Serial.print("Loi phan tich JSON tu WS: "); Serial.println(error.c_str());
                     updateLCD("Loi JSON!", error.c_str());
-                    // Send error back to the specific client
                     DynamicJsonDocument errorDoc(64);
                     errorDoc["error"] = "Invalid JSON";
                     String errorJson;
@@ -529,17 +770,15 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
                     return;
                 }
 
-                // Extract action and value from JSON
-                const char* action = doc["action"] | "unknown"; // Default to "unknown" if missing
-                String value = doc["value"].as<String>(); // Get value as String, empty if missing/null
+                const char* action = doc["action"] | "unknown";
+                String value = doc["value"].as<String>();
 
-                // Execute the action received from the web client
                 executeAction(action, value, SOURCE_WEB);
             }
             break;
         }
         case WS_EVT_PONG:
-             Serial.printf("WebSocket client #%u pong\n", client->id());
+            Serial.printf("WebSocket client #%u pong\n", client->id());
             break;
         case WS_EVT_ERROR:
             Serial.printf("WebSocket client #%u error(%u): %s\n", client->id(), *((uint16_t*)arg), (char*)data);
@@ -547,52 +786,43 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
     }
 }
 
-// Checks physical button press (simple check, no debounce library)
 void checkPhysicalButtonWithoutDebounce(int buttonPin, int &lastButtonState, const char* actionToTrigger) {
     int reading = digitalRead(buttonPin);
 
-    // Trigger only on HIGH to LOW transition (button pressed with PULLUP)
     if (reading == LOW && lastButtonState == HIGH) {
-         // Simple delay-based debounce - wait a short time
-         delay(50); // Adjust this value as needed (e.g., 20-100ms)
-         reading = digitalRead(buttonPin); // Read again after delay
+           delay(50);
+           reading = digitalRead(buttonPin);
 
-         if (reading == LOW) { // If still LOW after delay, consider it a valid press
-              Serial.printf("Nut vat ly (pin %d) nhan! Kich hoat action: %s\n", buttonPin, actionToTrigger);
-              executeAction(actionToTrigger, "", SOURCE_PHYSICAL); // Execute with "physical" source
-              lastButtonState = LOW; // Update state only after confirmed press
-         }
+           if (reading == LOW) {
+               Serial.printf("Nut vat ly (pin %d) nhan! Kich hoat action: %s\n", buttonPin, actionToTrigger);
+               executeAction(actionToTrigger, "", SOURCE_PHYSICAL);
+               lastButtonState = LOW;
+           }
     } else if (reading == HIGH && lastButtonState == LOW) {
-        // Button released - update state
         lastButtonState = HIGH;
-        // Optional: Add delay here too if needed for release debounce
-        // Serial.printf("Nut vat ly (pin %d) nha.\n", buttonPin);
     }
-    // No action needed if state hasn't changed or if transition is LOW to HIGH without prior LOW state ثبت.
 }
 
 void setupPins() {
     pinMode(LUU_KHO_PIN, OUTPUT);
     pinMode(XUAT_KHO_PIN, OUTPUT);
-    digitalWrite(LUU_KHO_PIN, LOW); // Default state OFF
-    digitalWrite(XUAT_KHO_PIN, LOW); // Default state OFF
+    digitalWrite(LUU_KHO_PIN, LOW);
+    digitalWrite(XUAT_KHO_PIN, LOW);
 
-    // Configure physical buttons with internal pull-up resistors
     pinMode(NUT_ON_VATLY_PIN, INPUT_PULLUP);
     pinMode(NUT_OFF_VATLY_PIN, INPUT_PULLUP);
     pinMode(NUT_RESET_VATLY_PIN, INPUT_PULLUP);
 
     Serial.println("GPIO pins configured.");
 
-    // Read initial button states
     lastButtonStateON    = digitalRead(NUT_ON_VATLY_PIN);
     lastButtonStateOFF   = digitalRead(NUT_OFF_VATLY_PIN);
     lastButtonStateRESET = digitalRead(NUT_RESET_VATLY_PIN);
 }
 
 void setupLCD() {
-    lcd.init();      // Initialize the LCD
-    lcd.backlight(); // Turn on the backlight
+    lcd.init();
+    lcd.backlight();
     updateLCD("Khoi dong...", "Xin cho");
     Serial.println("LCD initialized.");
 }
@@ -601,40 +831,37 @@ void setupAP() {
     Serial.println("Setting up WiFi Access Point...");
     updateLCD("Tao AP Wifi...", AP_SSID);
 
-    WiFi.mode(WIFI_AP); // Set ESP32 to Access Point mode
+    WiFi.mode(WIFI_AP);
 
-    // Start the AP. Provide password only if it's not empty.
     bool result = (strcmp(AP_PASSWORD, "") == 0) ?
-                   WiFi.softAP(AP_SSID) :
-                   WiFi.softAP(AP_SSID, AP_PASSWORD);
+                    WiFi.softAP(AP_SSID) :
+                    WiFi.softAP(AP_SSID, AP_PASSWORD);
 
     if (result) {
         Serial.println("WiFi AP started successfully");
         Serial.print("AP IP address: "); Serial.println(WiFi.softAPIP());
-        updateLCD("AP OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15)); // Truncate IP if needed
+        updateLCD("AP OK!", "IP:" + WiFi.softAPIP().toString().substring(0,15));
     } else {
         Serial.println("Error setting up WiFi AP");
         updateLCD("Loi tao AP!", "Khoi dong lai");
         delay(2000);
-        ESP.restart(); // Restart ESP32 if AP setup fails
+        ESP.restart();
     }
 }
 
 void setupWebServer() {
-    ws.onEvent(handleWebSocketEvent); // Attach WebSocket event handler
-    server.addHandler(&ws);           // Add WebSocket handler to the server
+    ws.onEvent(handleWebSocketEvent);
+    server.addHandler(&ws);
     Serial.println("WebSocket server configured at /ws");
 
-    // Serve the HTML page from PROGMEM at the root URL "/"
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send_P(200, "text/html", trangHtml);
     });
 
-    // Handle Not Found requests
     server.onNotFound([](AsyncWebServerRequest *request) {
         request->send(404, "text/plain", "404 Not Found");
     });
 
-    server.begin(); // Start the HTTP server
+    server.begin();
     Serial.println("HTTP server started.");
 }
