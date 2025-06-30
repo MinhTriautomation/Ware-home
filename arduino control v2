@@ -371,7 +371,7 @@ void dichuyenraB1() {
     if (!daRaB1) {
         quayNghichX_Vong(20.5 * 5);
         delay(200);
-        quayThuanY_Vong(12 * 5);
+        quayThuanY_Vong(13 * 5);
         delay(200);
         quayThuanZ_Vong(1.5);
         delay(200);
@@ -408,7 +408,7 @@ void dichuyenraC1() {
     if (!daRaC1) {
         quayNghichX_Vong(20.5 * 5);
         delay(200);
-        quayThuanY_Vong((25.5 - 3) * 5);
+        quayThuanY_Vong((25.5 - 1) * 5);
         delay(200);
         quayThuanZ_Vong(1.5);
         delay(200);
@@ -426,7 +426,7 @@ void dichuyenraC2() {
     if (!daRaC2) {
         quayNghichX_Vong(40 * 5);
         delay(200);
-        quayThuanY_Vong((25.5 - 3) * 5);
+        quayThuanY_Vong((25.5 - 1) * 5);
         delay(200);
         quayThuanZ_Vong(1.5);
         delay(200);
